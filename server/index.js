@@ -58,7 +58,19 @@ const openai = new OpenAI({
 
 app.use(express.urlencoded({ extended: true }));
 
-// WhatsApp module removed
+app.get('/test-qr', (req, res) => {
+  try {
+    const html = fs.readFileSync(path.join(__dirname, 'test_qr.html'), 'utf8');
+    res.send(html);
+  } catch (e) {
+    res.status(500).send('Error loading test page: ' + e.message);
+  }
+});
+
+// WhatsApp SaaS Module
+const whatsappSaasRouter = require('./services/whatsappSaas');
+app.use('/webhook/whatsapp', whatsappSaasRouter);
+
 
 app.get('/', (req, res) => {
   res.json({
