@@ -328,7 +328,7 @@ app.post('/api/verify-code', (req, res) => {
   }
 });
 
-const { generateResponse, generateAudio, getTalkMePrompt } = require('./services/aiRouter');
+const { generateResponse, generateAudio, getTalkMePrompt, cleanTextForTTS } = require('./services/aiRouter');
 
 app.post('/api/chat', async (req, res) => {
   try {
@@ -474,6 +474,15 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     const userText = transcriptionResponse.data.text;
     console.log('User said:', userText);
 
+    if (!userText || userText.trim().length === 0) {
+      return res.json({
+        userText: "",
+        assistantText: "No te escuché bien, ¿podrías repetir?",
+        feedbackText: null,
+        audioBase64: null
+      });
+    }
+
     // 2. Chat: Use aiRouter (Gemini Flash)
     currentStage = 'LLM (Chat)';
 
@@ -512,8 +521,14 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       aiContent = { dialogue: aiRawResponse, feedback: "" };
     }
 
-    const assistantText = aiContent.dialogue;
+    let assistantText = cleanTextForTTS(aiContent.dialogue);
     const feedbackText = aiContent.feedback;
+
+    // CRITICAL FIX: If AI fails or returns empty, provide a fallback message to prevent ElevenLabs 422
+    if (!assistantText || assistantText.trim().length === 0) {
+      console.warn("⚠️ AI Response was empty. Using fallback message.");
+      assistantText = "Lo siento, tuve un problema técnico. ¿Podrías repetirlo?";
+    }
 
     console.log('AI Dialogue:', assistantText);
     console.log('AI Feedback:', feedbackText);
@@ -553,24 +568,39 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       console.log('Generating new audio (API Call) 💸');
       // Call ElevenLabs directly (Fallback)
       const elevenKey = process.env.ELEVENLABS_KEY_NEW || process.env.ELEVENLABS_API_KEY || '';
-      const ttsResponse = await axios.post(
-        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
-        {
-          text: assistantText,
-          model_id: "eleven_monolingual_v1",
-          voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-        },
-        {
-          headers: {
-            'xi-api-key': elevenKey.trim(),
-            'Content-Type': 'application/json'
-          },
-          responseType: 'arraybuffer'
-        }
-      );
 
-      fs.writeFileSync(cachePath, Buffer.from(ttsResponse.data));
-      audioBase64 = Buffer.from(ttsResponse.data).toString('base64');
+      // DEBUG: Log key presence (masked) and Voice ID
+      console.log(`[DEBUG] ElevenLabs Key Length: ${elevenKey ? elevenKey.length : 0}`);
+      console.log(`[DEBUG] ElevenLabs Voice ID: ${ELEVENLABS_VOICE_ID}`);
+
+      try {
+        const ttsResponse = await axios.post(
+          `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+          {
+            text: assistantText,
+            model_id: "eleven_multilingual_v2", // More robust for global usage
+            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+          },
+          {
+            headers: {
+              'xi-api-key': elevenKey.trim(),
+              'Content-Type': 'application/json'
+            },
+            responseType: 'arraybuffer'
+          }
+        );
+        fs.writeFileSync(cachePath, Buffer.from(ttsResponse.data));
+        audioBase64 = Buffer.from(ttsResponse.data).toString('base64');
+      } catch (err) {
+        console.error('[CRITICAL] ElevenLabs API Check Failed:');
+        if (err.response) {
+          console.error('Status:', err.response.status);
+          console.error('Data:', err.response.data.toString()); // Convert buffer to string if needed
+        } else {
+          console.error('Message:', err.message);
+        }
+        throw err; // Re-throw to be caught by main catch
+      }
     }
 
     res.json({
@@ -581,8 +611,13 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     });
 
   } catch (error) {
-    console.error(`Error in /api/speak [${currentStage}]:`, error.response ? error.response.data : error.message);
-    res.status(500).json({ error: 'Processing failed', stage: currentStage, details: error.message });
+    const errorData = error.response ? (error.response.data instanceof Buffer ? error.response.data.toString() : JSON.stringify(error.response.data)) : error.message;
+    console.error(`Error in /api/speak [${currentStage}]:`, errorData);
+    res.status(500).json({
+      error: 'Processing failed',
+      stage: currentStage,
+      details: errorData
+    });
   } finally {
     if (audioFile) cleanup(audioFile.path);
   }
