@@ -127,24 +127,34 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 // --- Specific AI Implementations ---
 
 async function callGeminiFlash(message, systemPrompt, history) {
-    const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
-    // Use systemInstruction for better persona adherence with Gemini 1.5/2.0
-    const model = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash",
-        systemInstruction: systemPrompt
-    });
+    if (!GENAI_API_KEY) return null;
 
-    const chat = model.startChat({
-        history: formatHistoryForGemini(history),
-        generationConfig: {
-            maxOutputTokens: 500,
-            temperature: 0.7,
+    try {
+        const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
+        // Using 1.5-flash for maximum regional compatibility as requested
+        const model = genAI.getGenerativeModel({
+            model: "gemini-1.5-flash",
+            systemInstruction: systemPrompt
+        });
+
+        const chat = model.startChat({
+            history: formatHistoryForGemini(history),
+            generationConfig: {
+                maxOutputTokens: 500,
+                temperature: 0.7,
+            }
+        });
+
+        const result = await chat.sendMessage(message);
+        const response = await result.response;
+        return response.text();
+    } catch (err) {
+        console.error("❌ Gemini API Error:", err.message);
+        if (err.message.includes('422')) {
+            console.error("💡 Tip: Error 422 usually means invalid history format or unsupported parameters.");
         }
-    });
-
-    const result = await chat.sendMessage(message);
-    const response = await result.response;
-    return response.text();
+        throw err; // Allow fallback to trigger in generateResponse
+    }
 }
 
 async function callOpenAI(message, systemPrompt, history) {
@@ -189,24 +199,54 @@ async function callDeepSeek(message, systemPrompt, history) {
 
 
 // --- Helper: Format History ---
+/**
+ * Ensures history is valid for Gemini:
+ * 1. Only 'user' and 'model' roles.
+ * 2. Alternating roles (User -> Model -> User).
+ * 3. Starts with 'user'.
+ */
 function formatHistoryForGemini(history) {
-    let formatted = history.map(h => ({
-        role: h.role === 'user' ? 'user' : 'model',
-        parts: [{ text: h.content }]
-    }));
+    if (!history || !Array.isArray(history)) return [];
 
-    // Inject system prompt into history? 
-    // Gemini API supports 'systemInstruction' in getGenerativeModel or request options.
-    // Ideally we should pass it to getGenerativeModel or startChat.
-    // However, the simplest robust way across versions is putting it in the first message if startChat systemInstruction isn't used.
-    // But since we are using 'startChat' with `systemInstruction` support in v0.24.1 (which is installed),
-    // we should really be passing it properly or prepending it.
+    let formatted = [];
+    let lastRole = null;
 
-    // For now, simpler is usually safer: PREPEND to history as 'model' thought? No, 'user' instruction.
-    // Actually, v0.24 supports `systemInstruction`. Let's assume we update callGeminiFlash to use it if possible.
-    // But `getGenerativeModel({ model: ..., systemInstruction: ... })` is the way.
+    for (const msg of history) {
+        // Skip system messages (handled via systemInstruction)
+        if (msg.role === 'system') continue;
+
+        const role = msg.role === 'user' ? 'user' : 'model';
+
+        // Ensure alternating roles and no consecutive same roles
+        if (role !== lastRole) {
+            formatted.push({
+                role: role,
+                parts: [{ text: msg.content || "" }]
+            });
+            lastRole = role;
+        }
+    }
+
+    // Gemini history must start with 'user'
+    if (formatted.length > 0 && formatted[0].role !== 'user') {
+        formatted.shift();
+    }
 
     return formatted;
+}
+
+/**
+ * Cleans Markdown and special characters for TTS engines.
+ */
+function cleanTextForTTS(text) {
+    if (!text) return "";
+    return text
+        .replace(/[*_~`#]/g, '') // Remove Markdown symbols
+        .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
+        .replace(/\[.*?\]\(.*?\)/g, '') // Remove links
+        .replace(/\{.*?\}/g, '') // Remove JSON blocks if accidentally leaked
+        .replace(/\s+/g, ' ') // Collapse whitespace
+        .trim();
 }
 
 
@@ -229,4 +269,4 @@ async function callElevenLabs(text) {
     return null;
 }
 
-module.exports = { generateResponse, generateAudio, getTalkMePrompt, PERSONAS };
+module.exports = { generateResponse, generateAudio, getTalkMePrompt, PERSONAS, cleanTextForTTS };
