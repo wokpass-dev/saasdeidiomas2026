@@ -328,6 +328,8 @@ app.post('/api/verify-code', (req, res) => {
   }
 });
 
+const { generateResponse, generateAudio, getTalkMePrompt } = require('./services/aiRouter');
+
 app.post('/api/chat', async (req, res) => {
   try {
     const { messages, scenarioId, userId } = req.body;
@@ -344,7 +346,9 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    let systemMsg = { role: 'system', content: 'You are a helpful tutor.' };
+    let systemPrompt = 'You are a helpful tutor.';
+    let language = 'en';
+    let level = 'A1';
 
     if (userId && supabaseAdmin) {
       const { data: profile } = await supabaseAdmin
@@ -353,28 +357,47 @@ app.post('/api/chat', async (req, res) => {
         .eq('id', userId)
         .single();
 
-      if (profile && profile.goal) {
-        const planConfig = getPlanConfig(profile);
-        systemMsg = planConfig.systemPrompt;
-        console.log(`🧠 Rule Engine for ${userId}: Plan=${planConfig.planId}`);
-      } else {
-        systemMsg = getSystemMessage(scenarioId);
+      if (profile) {
+        level = profile.level || 'A1';
+        // Try to infer language from goal or default to EN
+        if (profile.goal && profile.goal.toLowerCase().includes('alem')) language = 'de';
+        else if (profile.goal && profile.goal.toLowerCase().includes('fran')) language = 'fr';
+
+        systemPrompt = getTalkMePrompt(language, level);
       }
-    } else {
-      systemMsg = getSystemMessage(scenarioId);
     }
 
-    const userMessages = messages.filter(m => m.role !== 'system');
-    const finalMessages = [systemMsg, ...userMessages];
+    // If scenarioId is present, we might want to append scenario context?
+    // For now, let's trust the Syllabus Prompt as the core.
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: finalMessages,
-    });
+    // Extract user message and history
+    const userLastMsg = messages[messages.length - 1].content;
+    const history = messages.slice(0, -1);
+
+    const aiRawResponse = await generateResponse(userLastMsg, systemPrompt, history);
+
+    // Parse JSON from AI (TalkMe now outputs structured data)
+    let aiContent = { message: aiRawResponse, correction: null, tip: null };
+
+    try {
+      // Clean potential Markdown wrappers
+      const cleanJson = aiRawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
+
+      if (parsed.message) {
+        aiContent = parsed;
+      }
+    } catch (e) {
+      console.warn("AI JSON Parse failed in /api/chat, falling back to raw text:", e.message);
+      // Fallback: entire response is message
+      aiContent.message = aiRawResponse;
+    }
 
     res.json({
       role: 'assistant',
-      content: completion.choices[0].message.content
+      content: aiContent.message,
+      correction: aiContent.correction,
+      tip: aiContent.tip
     });
 
   } catch (error) {
@@ -429,12 +452,11 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       });
     }
 
-    // 1. STT: Send to OpenAI Whisper
+    // 1. STT: Send to OpenAI Whisper (Keep for now as Gemini Audio Input via REST is complex)
     currentStage = 'STT (Whisper)';
     const path = require('path');
     const ext = path.extname(audioFile.originalname) || '.m4a';
 
-    // Fix: Explicitly declare formData
     const formData = new FormData();
     formData.append('file', fs.createReadStream(audioFile.path), `audio${ext}`);
     formData.append('model', 'whisper-1');
@@ -445,7 +467,6 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       {
         headers: {
           ...formData.getHeaders(),
-          // Fix 401: Trim API Key here as well
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.trim() : ''}`
         }
       }
@@ -453,54 +474,65 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     const userText = transcriptionResponse.data.text;
     console.log('User said:', userText);
 
-    // 2. Chat: Send text to GPT
+    // 2. Chat: Use aiRouter (Gemini Flash)
     currentStage = 'LLM (Chat)';
-    const scenarioId = req.body.scenarioId;
-    let systemMsg = { role: 'system', content: 'You are a helpful tutor.' };
+
+    let systemPrompt = getTalkMePrompt('en', 'A1'); // Default
 
     if (userId && supabaseAdmin) {
-      const { data: profile } = await supabaseAdmin
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-      if (profile && profile.goal) {
-        const planConfig = getPlanConfig(profile);
-        systemMsg = planConfig.systemPrompt;
-      } else {
-        systemMsg = getSystemMessage(scenarioId);
+      const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('id', userId).single();
+      if (profile) {
+        const lang = (profile.goal && profile.goal.toLowerCase().includes('alem')) ? 'de' :
+          (profile.goal && profile.goal.toLowerCase().includes('fran')) ? 'fr' : 'en';
+        systemPrompt = getTalkMePrompt(lang, profile.level || 'A1');
       }
-    } else {
-      systemMsg = getSystemMessage(scenarioId);
     }
 
-    const jsonSystemMsg = {
-      role: 'system',
-      content: `${systemMsg.content} 
+    // Append JSON instruction specifically for Speak mode
+    const jsonInstruction = `
         IMPORTANT: You must respond in valid JSON format with two fields:
         1. "dialogue": The spoken response to the user (Keep it conversational and brief).
         2. "feedback": Any corrections, grammar tips, or suggestions (in the user's language). If perfect, this can be null or empty.
-        Example: { "dialogue": "Bonjour! Un café?", "feedback": "Dijiste 'un cafe', recuerda el acento." }`
-    };
+        Example: { "dialogue": "Bonjour! Un café?", "feedback": "Dijiste 'un cafe', recuerda el acento." }
+        RETURN ONLY JSON.`;
 
-    const chatCompletion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        jsonSystemMsg,
-        { role: 'user', content: userText }
-      ],
-      response_format: { type: "json_object" }
-    });
+    const combinedPrompt = systemPrompt + "\n" + jsonInstruction;
 
-    const aiContent = JSON.parse(chatCompletion.choices[0].message.content);
+    // Call Router
+    const aiRawResponse = await generateResponse(userText, combinedPrompt, []); // No history for voice chat 'ping-pong' for now to save tokens/complexity or pass if needed
+
+    // Parse JSON
+    // Gemini might wrap in ```json ... ```
+    let cleanJson = aiRawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+    let aiContent;
+    try {
+      aiContent = JSON.parse(cleanJson);
+    } catch (e) {
+      console.warn("AI JSON Parse failed, fallback to raw text");
+      aiContent = { dialogue: aiRawResponse, feedback: "" };
+    }
+
     const assistantText = aiContent.dialogue;
     const feedbackText = aiContent.feedback;
 
     console.log('AI Dialogue:', assistantText);
     console.log('AI Feedback:', feedbackText);
 
-    // 3. TTS: ElevenLabs
-    currentStage = 'TTS (ElevenLabs)';
+    // 3. TTS: Gemini or ElevenLabs (via Router)
+    currentStage = 'TTS';
+    // const audioBase64 = ... call router?
+    // Router `generateAudio` returns what? Buffer? ArrayBuffer?
+    // Index.js current logic handles caching.
+    // Let's keep Index.js caching logic but call Router?
+    // Actually, let's keep the existing ElevenLabs/Cache logic here for now because aiRouter audio part is just a placeholder returning null.
+    // The user wants "Gemini Free Audio". Since I haven't implemented Gemini TTS in router yet (placeholder), 
+    // I will STICK to the existing ElevenLabs Logic here but maybe try to optimize or enable Gemini later.
+    // Ideally, I should move this logic to `aiRouter.generateAudio`.
+
+    // For this step, I will leave the TTS block as is (using ElevenLabs/OpenAI keys directly from env) 
+    // to ensure voice still works while we switched the BRAIN to Gemini.
+
+    // ... (Keeping existing TTS logic below for safety) ...
     const crypto = require('crypto');
     const cacheDir = 'audio_cache';
     if (!fs.existsSync(cacheDir)) {
@@ -519,12 +551,8 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       audioBase64 = audioBuffer.toString('base64');
     } else {
       console.log('Generating new audio (API Call) 💸');
-
-      // Fix 401: Prefer New Key, Fallback to Old
-      const elevenKey = process.env.ELEVENLABS_KEY_NEW
-        ? process.env.ELEVENLABS_KEY_NEW.trim()
-        : (process.env.ELEVENLABS_API_KEY ? process.env.ELEVENLABS_API_KEY.trim() : '');
-
+      // Call ElevenLabs directly (Fallback)
+      const elevenKey = process.env.ELEVENLABS_KEY_NEW || process.env.ELEVENLABS_API_KEY || '';
       const ttsResponse = await axios.post(
         `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
         {
@@ -534,7 +562,7 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
         },
         {
           headers: {
-            'xi-api-key': elevenKey,
+            'xi-api-key': elevenKey.trim(),
             'Content-Type': 'application/json'
           },
           responseType: 'arraybuffer'

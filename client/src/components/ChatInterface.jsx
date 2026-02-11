@@ -321,9 +321,9 @@ export default function ChatInterface({ session }) {
                                 key={index}
                                 initial={{ opacity: 0, y: 10, scale: 0.98 }}
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                                className={`flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
                             >
-                                <div className={`group flex items-end max-w-[80%] md:max-w-[70%] gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                <div className={`flex items-end max-w-[85%] md:max-w-[75%] gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                                     {/* Avatar */}
                                     <div className={`w-8 h-8 md:w-10 md:h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-lg ${msg.role === 'user'
                                         ? 'bg-gradient-to-br from-blue-500 to-indigo-600'
@@ -337,27 +337,40 @@ export default function ChatInterface({ session }) {
                                         ? 'bg-blue-600/90 text-white rounded-br-none border border-blue-500/50'
                                         : 'bg-slate-800/80 text-slate-100 rounded-bl-none border border-white/5'
                                         }`}>
-                                        {/* Subtle pattern for Bot */}
                                         {msg.role !== 'user' && <div className="absolute top-0 right-0 p-3 opacity-5"><Bot size={40} /></div>}
-
-                                        <p className="text-sm md:text-base leading-relaxed relative z-10">{msg.content}</p>
+                                        <p className="text-sm md:text-base leading-relaxed relative z-10 whitespace-pre-wrap">{msg.content}</p>
                                     </div>
+                                </div>
 
-                                    {/* Optimization #2: Selective Audio Feedback Display (Text Only = Free) */}
-                                    {msg.feedback && (
-                                        <div className="mt-2 ml-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl rounded-tl-none max-w-[90%] self-start animate-in fade-in slide-in-from-top-2">
-                                            <div className="flex gap-2 items-start">
-                                                <div className="bg-yellow-500/20 p-1 rounded-full shrink-0">
-                                                    <Crown size={12} className="text-yellow-400" />
+                                {/* AI FEEDBACK CARDS (Correction & Tip) */}
+                                {(msg.correction || msg.tip) && (
+                                    <div className="ml-14 max-w-[80%] space-y-2 animate-in fade-in slide-in-from-top-2">
+
+                                        {msg.correction && (
+                                            <div className="bg-red-900/20 border border-red-500/30 p-3 rounded-xl rounded-tl-sm flex gap-3 shadow-sm hover:bg-red-900/30 transition-colors">
+                                                <div className="bg-red-500/20 p-1.5 rounded-full shrink-0 h-fit">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-red-400"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                                                 </div>
                                                 <div>
-                                                    <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-wider block mb-1">Feedback del Tutor</span>
-                                                    <p className="text-xs text-yellow-100/90 leading-relaxed">{msg.feedback}</p>
+                                                    <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block mb-0.5">Corrección</span>
+                                                    <p className="text-xs text-red-100/90 italic">{msg.correction}</p>
                                                 </div>
                                             </div>
-                                        </div>
-                                    )}
-                                </div>
+                                        )}
+
+                                        {msg.tip && (
+                                            <div className="bg-blue-900/20 border border-blue-500/30 p-3 rounded-xl rounded-tl-sm flex gap-3 shadow-sm hover:bg-blue-900/30 transition-colors">
+                                                <div className="bg-blue-500/20 p-1.5 rounded-full shrink-0 h-fit">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block mb-0.5">Tip Pro</span>
+                                                    <p className="text-xs text-blue-100/90">{msg.tip}</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </motion.div>
                         ))}
                         {loading && (
