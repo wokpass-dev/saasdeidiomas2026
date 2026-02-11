@@ -1,4 +1,4 @@
-ANALIZA const express = require('express');
+const express = require('express');
 const router = express.Router();
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
