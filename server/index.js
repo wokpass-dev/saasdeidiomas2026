@@ -565,41 +565,25 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       const audioBuffer = fs.readFileSync(cachePath);
       audioBase64 = audioBuffer.toString('base64');
     } else {
-      console.log('Generating new audio (API Call) 💸');
-      // Call ElevenLabs directly (Fallback)
-      const elevenKey = process.env.ELEVENLABS_KEY_NEW || process.env.ELEVENLABS_API_KEY || '';
-
-      // DEBUG: Log key presence (masked) and Voice ID
-      console.log(`[DEBUG] ElevenLabs Key Length: ${elevenKey ? elevenKey.length : 0}`);
-      console.log(`[DEBUG] ElevenLabs Voice ID: ${ELEVENLABS_VOICE_ID}`);
+      console.log('Generating new audio with Google TTS (FREE) 🎉');
 
       try {
-        const ttsResponse = await axios.post(
-          `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
-          {
-            text: assistantText,
-            model_id: "eleven_multilingual_v2", // More robust for global usage
-            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-          },
-          {
-            headers: {
-              'xi-api-key': elevenKey.trim(),
-              'Content-Type': 'application/json'
-            },
-            responseType: 'arraybuffer'
-          }
-        );
+        const googleTTS = require('google-tts-api');
+        const ttsUrl = googleTTS.getAudioUrl(assistantText, {
+          lang: 'en',
+          slow: false,
+          host: 'https://translate.google.com'
+        });
+
+        const ttsResponse = await axios.get(ttsUrl, { responseType: 'arraybuffer' });
+
         fs.writeFileSync(cachePath, Buffer.from(ttsResponse.data));
         audioBase64 = Buffer.from(ttsResponse.data).toString('base64');
+
+        console.log('✅ Google TTS Success (Cost: $0.00)');
       } catch (err) {
-        console.error('[CRITICAL] ElevenLabs API Check Failed:');
-        if (err.response) {
-          console.error('Status:', err.response.status);
-          console.error('Data:', err.response.data.toString()); // Convert buffer to string if needed
-        } else {
-          console.error('Message:', err.message);
-        }
-        throw err; // Re-throw to be caught by main catch
+        console.error('[ERROR] Google TTS Failed:', err.message);
+        throw err;
       }
     }
 
