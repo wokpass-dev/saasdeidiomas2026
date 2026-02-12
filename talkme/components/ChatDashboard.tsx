@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { UserProfile, ChatMessage } from '../types';
-import { Icons, DAILY_LIMIT } from '../constants';
+import { UserProfile, ChatMessage, ProficiencyLevel } from '../types';
+import { Icons, DAILY_LIMIT, SYLLABUS } from '../constants';
 import { generateAIChatResponse, transcribeAudio, synthesizeSpeech, decodeAudioData } from '../services/geminiService';
 import { useNavigate } from 'react-router-dom';
 
@@ -154,6 +154,22 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
       <main className="flex-1 overflow-hidden flex flex-col relative">
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 scroll-smooth">
           <div className="max-w-2xl mx-auto space-y-6 pb-20">
+            {/* Mission Banner (Gamification) */}
+            <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-6 mb-8 text-center animate-in fade-in zoom-in duration-500">
+              <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">Misión de Aprendizaje</span>
+              <h2 className="text-xl font-bold text-indigo-900 mt-1">
+                {(SYLLABUS[user.language] as any)?.[user.level]?.goal || "Practica libremente"}
+              </h2>
+              <div className="flex flex-wrap gap-2 justify-center mt-4">
+                {(SYLLABUS[user.language] as any)?.[user.level]?.grammar.split(',').slice(0, 2).map((g: string, i: number) => (
+                  <span key={i} className="px-3 py-1 bg-white text-indigo-600 rounded-full text-xs font-bold shadow-sm border border-indigo-50">✨ {g.trim()}</span>
+                ))}
+                {(SYLLABUS[user.language] as any)?.[user.level]?.vocabulary.split(',').slice(0, 2).map((v: string, i: number) => (
+                  <span key={i} className="px-3 py-1 bg-white text-emerald-600 rounded-full text-xs font-bold shadow-sm border border-emerald-50">🎯 {v.trim()}</span>
+                ))}
+              </div>
+            </div>
+
             {messages.length === 0 && (
               <div className="text-center py-20 opacity-40">
                 <p className="text-slate-500">Inicia la conversación escribiendo o pulsando el micro.</p>
@@ -163,8 +179,8 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
               <div key={idx} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                 <div className="max-w-[85%] space-y-2">
                   <div className={`p-4 rounded-2xl shadow-sm ${m.role === 'user'
-                      ? 'bg-indigo-600 text-white rounded-tr-none'
-                      : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none'
+                    ? 'bg-indigo-600 text-white rounded-tr-none'
+                    : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none'
                     }`}>
                     <p className="leading-relaxed">{m.content}</p>
                   </div>
@@ -205,8 +221,8 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
               onTouchStart={startRecording}
               onTouchEnd={stopRecording}
               className={`flex-shrink-0 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${isRecording
-                  ? 'bg-red-500 text-white scale-110 ring-4 ring-red-100 animate-pulse'
-                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                ? 'bg-red-500 text-white scale-110 ring-4 ring-red-100 animate-pulse'
+                : 'bg-indigo-600 text-white hover:bg-indigo-700'
                 }`}
             >
               <Icons.Mic />

@@ -5,28 +5,68 @@ import { Language, ProficiencyLevel } from './types';
 export const SYLLABUS = {
   [Language.ENGLISH]: {
     [ProficiencyLevel.A1]: {
-      grammar: "Present Simple, basic pronouns, articles (a/an/the).",
-      vocabulary: "Numbers, colors, greetings, daily objects.",
-      protocol: "Correct gently, focus on subject-verb agreement."
+      description: "Acceso / Beginner (Supervivencia)",
+      goal: "Misión: Sobrevivir en el Aeropuerto y Migraciones. 🧳",
+      grammar: "Present Simple (be, do), pronouns, basic questions (Where, What), articles.",
+      vocabulary: "Passport, Flight, Luggage, Hotel, Food, Numbers, Greetings.",
+      skills: "Presentarse, pasar control de pasaportes, pedir ayuda básica.",
+      expected_errors: ["Incorrect use of 'be'", "Question order", "Basic prepositions"],
+      protocol: "EXPLICT CORRECTION. Refuérzame la confianza del viajero.",
+      style: "Short, clear sentences for a busy airport environment."
+    },
+    [ProficiencyLevel.A2]: {
+      description: "Plataforma / Elementary (Migrante)",
+      goal: "Misión: Instalación y trámites de residencia. 🏠",
+      grammar: "Past simple, present continuous, comparatives, going to.",
+      vocabulary: "Rent, Job interview, Health, Weather, Documents, Registration.",
+      skills: "Describing the past, making plans, rental calls, basic job application.",
+      expected_errors: ["Irregular past verbs", "Much/many confusion"],
+      protocol: "SELECTIVE CORRECTION. Focus on clarity for important procedures.",
+      style: "Friendly but precise tone for administrative tasks."
+    },
+    [ProficiencyLevel.B1]: {
+      description: "Umbral / Intermediate",
+      goal: "Desenvolverse en viajes y expresar opiniones.",
+      grammar: "Present perfect, basic passive voice, conditionals 1 and 2, modals (should, must), relative clauses.",
+      vocabulary: "Education, environment, technology, feelings, current events.",
+      skills: "Expressing opinions, justifying, simple letters, understanding main ideas.",
+      expected_errors: ["Past simple vs Present perfect", "Conditionals", "Passive voice", "False friends"],
+      protocol: "GRAMMATICAL SUGGESTION ('Consider using present perfect'). Offer alternatives. Reflection questions.",
+      style: "Medium sentences (max 20 words). Conversational and stimulating. Justification questions (Why do you think...?)."
     },
     [ProficiencyLevel.B2]: {
-      grammar: "Conditionals, Passive Voice, Phrasal Verbs.",
-      vocabulary: "Business, technology, abstract feelings.",
-      protocol: "Challenge with idiomatic expressions, correct nuances."
+      description: "Avanzado / Upper Intermediate",
+      goal: "Interactuar con fluidez y espontaneidad con nativos.",
+      grammar: "Perfect continuous, advanced passive, 3rd conditional, modals of deduction, contrast/cause connectors.",
+      vocabulary: "Business, art, science, phrasal verbs, abstracts.",
+      skills: "Argumenting, debating, understanding complex texts, fluency.",
+      expected_errors: ["Modal nuances", "Complex collocations", "Precise use of connectors"],
+      protocol: "PRECISION AND STYLE CORRECTION. Suggest more natural alternatives. Discussion of nuances.",
+      style: "Long sentences (max 30 words). Challenging and analytical. Hypothetical and comparative questions."
     }
   },
   [Language.GERMAN]: {
     [ProficiencyLevel.A1]: {
-      grammar: "Präsens, Trennbare Verben, Nominativ vs Akkusativ.",
-      vocabulary: "Essen, Trinken, Familie, Wochentage.",
-      protocol: "Focus on gender (der/die/das) corrections."
+      description: "Acceso / Start Deutsch 1",
+      goal: "Comunicación básica y necesidades concretas.",
+      grammar: "Present, separable verbs, articles (der/die/das), nominative/accusative, negation (nicht/kein), imperative.",
+      vocabulary: "Greetings, family, housing, food, time.",
+      skills: "Basic questions, forms, understanding announcements.",
+      expected_errors: ["Gender and articles", "Word order (V2)", "Cases (Nom/Akk)", "Sein vs Haben"],
+      protocol: "EXPLICT GENDER CORRECTION ('Remember: der Tisch'). Highlight structure (Verb at the end).",
+      style: "Very structured. Simple sentences. Emphasis on word order."
     }
   },
   [Language.FRENCH]: {
     [ProficiencyLevel.A1]: {
-      grammar: "Le Présent, Articles contractés, Genre des noms.",
-      vocabulary: "La ville, les loisirs, la maison.",
-      protocol: "Focus on verb endings and liaison."
+      description: "Découverte / Acceso",
+      goal: "Interacción sencilla si el interlocutor habla lento.",
+      grammar: "Present (être, avoir, -er), articles, adjectives, interrogation, simple negation (ne...pas).",
+      vocabulary: "Greetings, numbers, family, professions, food.",
+      skills: "Presenting oneself, buying, understanding basic instructions.",
+      expected_errors: ["Gender/Number", "Être vs Avoir", "Negation order"],
+      protocol: "EXPLICT GENDER CORRECTION ('La table est belle'). Simple rule.",
+      style: "Clear and slow. Direct questions."
     }
   }
 };

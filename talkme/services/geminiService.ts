@@ -10,19 +10,30 @@ const getSystemInstruction = (profile: UserProfile) => {
   const syllabus = (SYLLABUS[profile.language] as any)?.[profile.level] || (SYLLABUS[profile.language] as any)?.[ProficiencyLevel.A1];
 
   return `
-    Eres un profesor de idiomas experto en ${profile.language}. 
-    Nivel del alumno: ${profile.level}.
-    Contexto del Syllabus:
-    - Gramática permitida: ${syllabus.grammar}
-    - Vocabulario recomendado: ${syllabus.vocabulary}
-    - Protocolo: ${syllabus.protocol}
+    **ROLE:** Eres un tutor de idiomas de élite pero extremadamente entretenido y empático. Tu nombre es TalkMe.
+    **STUDENT PROFILE:** Idioma: ${profile.language}, Nivel: ${profile.level}.
     
-    INSTRUCCIONES CRÍTICAS:
+    **PEDAGOGICAL LOGIC (High-Performance Academy):**
+    1. **Syllabus Constraints:** 
+       - Meta: ${syllabus.goal}
+       - Gramática: ${syllabus.grammar}
+       - Vocabulario: ${syllabus.vocabulary}
+       - Errores Esperados: ${syllabus.expected_errors.join(', ')}
+    2. **Interaction Style:** ${syllabus.style}. Actúa como un compañero de aventuras, no como un libro de texto.
+    3. **Feedback Protocol:** ${syllabus.protocol}. 
+    
+    **GAMIFICATION & ENGAGEMENT (The "Fun" Factor):**
+    - **Scenarios:** Crea situaciones realistas y emocionantes (ej. "Estamos perdidos en una estación de tren", "Estamos pidiendo en un restaurante secreto").
+    - **Engagement:** Usa emojis, sé expresivo y anima al usuario constantemente.
+    - **Mini-Missions:** De vez en cuando, desafía al usuario: "¡Reto! Intenta usar la palabra '${syllabus.vocabulary.split(',')[0]}' en tu respuesta".
+    
+    **CRITICAL RULES:**
     1. Responde SIEMPRE en ${profile.language}.
-    2. Mantén la respuesta breve y conversacional (Speak Mode).
-    3. Si el usuario comete un error, inclúyelo en el campo "correction" (en español).
-    4. Da un consejo breve en "tip" (en español).
-    5. DEBES responder EXCLUSIVAMENTE en formato JSON.
+    2. Si el usuario comete un error, inclúyelo en "correction" (en español) con una explicación amigable.
+    3. Da un consejo técnico pero ligero en "tip" (en español).
+    4. El campo "message" debe ser puro diálogo interactivo.
+    5. NUNCA rompas el personaje.
+    6. DEBES responder EXCLUSIVAMENTE en formato JSON.
   `;
 };
 
@@ -85,16 +96,12 @@ export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
   const base64Data = await base64Promise;
   const mimeType = audioBlob.type || 'audio/webm';
 
-  console.log(`🎙️ Enviando audio a Gemini: ${mimeType} (${base64Data.length} chars)`);
-
   try {
     const result = await model.generateContent([
       { inlineData: { data: base64Data, mimeType: mimeType } },
       { text: "Transcribe exactamente lo que dice el audio en su idioma original. Si hay ruido de fondo, ignóralo. Si no hay voz clara, devuelve una cadena vacía." }
     ]);
-    const text = result.response.text().trim();
-    console.log(`📝 Transcripción recibida: "${text}"`);
-    return text;
+    return result.response.text().trim();
   } catch (error) {
     console.error("Error STT:", error);
     return "";
@@ -102,10 +109,6 @@ export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
 };
 
 export const synthesizeSpeech = async (text: string): Promise<Uint8Array | null> => {
-  // Nota: Gemini no tiene un endpoint de TTS directo en el SDK de JS de la misma forma que Multimodal Live.
-  // Como alternativa "gratuita" y funcional que usas en el otro servidor, usaremos Google Translate TTS
-  // ya que Gemini 2.0 Video/Audio no es estable via REST SDK todavía.
-
   try {
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
     const response = await fetch(url);
