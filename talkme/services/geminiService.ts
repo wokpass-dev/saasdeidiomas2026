@@ -83,13 +83,18 @@ export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
   });
 
   const base64Data = await base64Promise;
+  const mimeType = audioBlob.type || 'audio/webm';
+
+  console.log(`🎙️ Enviando audio a Gemini: ${mimeType} (${base64Data.length} chars)`);
 
   try {
     const result = await model.generateContent([
-      { inlineData: { data: base64Data, mimeType: 'audio/webm' } },
-      { text: "Transcribe exactamente lo que dice el audio. Si no hay voz, responde con un espacio vacío." }
+      { inlineData: { data: base64Data, mimeType: mimeType } },
+      { text: "Transcribe exactamente lo que dice el audio en su idioma original. Si hay ruido de fondo, ignóralo. Si no hay voz clara, devuelve una cadena vacía." }
     ]);
-    return result.response.text().trim();
+    const text = result.response.text().trim();
+    console.log(`📝 Transcripción recibida: "${text}"`);
+    return text;
   } catch (error) {
     console.error("Error STT:", error);
     return "";

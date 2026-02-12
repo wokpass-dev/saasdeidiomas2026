@@ -48,7 +48,7 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
 
   const handleSend = async (text: string = inputText) => {
     if (!text.trim() || isLoading) return;
-    
+
     // Validación de límites (Punto 4 del plan)
     if (user.useCount >= DAILY_LIMIT && !user.isStudent) {
       navigate('/payment');
@@ -74,7 +74,7 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
 
       setMessages(prev => [...prev, aiMsg]);
       onUpdate({ useCount: (user.useCount || 0) + 1 });
-      
+
       // Reproducir voz automáticamente
       await playAudioResponse(aiRes.message);
     } catch (err) {
@@ -96,7 +96,9 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
       };
 
       recorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const supportedType = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: supportedType });
+        console.log(`✅ Grabación finalizada: ${blob.size} bytes, tipo: ${supportedType}`);
         setIsLoading(true);
         const transcription = await transcribeAudio(blob);
         if (transcription.trim()) {
@@ -132,20 +134,20 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
           </div>
         </div>
         <div className="flex items-center gap-4">
-           <div className="hidden md:block text-right">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Uso Diario</p>
-              <div className="w-24 h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
-                <div 
-                  className="h-full bg-indigo-500 transition-all duration-500" 
-                  style={{ width: `${Math.min((user.useCount / DAILY_LIMIT) * 100, 100)}%` }}
-                ></div>
-              </div>
-           </div>
-           <button onClick={onLogout} className="text-slate-400 hover:text-red-500 transition-colors">
-             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-             </svg>
-           </button>
+          <div className="hidden md:block text-right">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Uso Diario</p>
+            <div className="w-24 h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
+              <div
+                className="h-full bg-indigo-500 transition-all duration-500"
+                style={{ width: `${Math.min((user.useCount / DAILY_LIMIT) * 100, 100)}%` }}
+              ></div>
+            </div>
+          </div>
+          <button onClick={onLogout} className="text-slate-400 hover:text-red-500 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -160,14 +162,13 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
             {messages.map((m, idx) => (
               <div key={idx} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                 <div className="max-w-[85%] space-y-2">
-                  <div className={`p-4 rounded-2xl shadow-sm ${
-                    m.role === 'user' 
-                    ? 'bg-indigo-600 text-white rounded-tr-none' 
-                    : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none'
-                  }`}>
+                  <div className={`p-4 rounded-2xl shadow-sm ${m.role === 'user'
+                      ? 'bg-indigo-600 text-white rounded-tr-none'
+                      : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none'
+                    }`}>
                     <p className="leading-relaxed">{m.content}</p>
                   </div>
-                  
+
                   {m.role === 'model' && (m.correction || m.tip) && (
                     <div className="bg-emerald-50/80 border border-emerald-100 rounded-xl p-3 text-xs space-y-2 backdrop-blur-sm">
                       {m.correction && (
@@ -203,15 +204,14 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
               onMouseUp={stopRecording}
               onTouchStart={startRecording}
               onTouchEnd={stopRecording}
-              className={`flex-shrink-0 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${
-                isRecording 
-                ? 'bg-red-500 text-white scale-110 ring-4 ring-red-100 animate-pulse' 
-                : 'bg-indigo-600 text-white hover:bg-indigo-700'
-              }`}
+              className={`flex-shrink-0 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${isRecording
+                  ? 'bg-red-500 text-white scale-110 ring-4 ring-red-100 animate-pulse'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                }`}
             >
               <Icons.Mic />
             </button>
-            
+
             <div className="flex-1 relative group">
               <input
                 value={inputText}
