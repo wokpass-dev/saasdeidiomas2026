@@ -90,16 +90,27 @@ export default function ChatInterface({ session }) {
         scrollToBottom();
     }, [messages]);
 
-    const handleAudioCapture = async (audioBlob) => {
+    const handleAudioCapture = async (captured) => {
+        // Nueva lógica: si recibimos texto directamente del Google STT
+        if (captured.text) {
+            setInput(captured.text);
+            // Simular el envío del mensaje de texto
+            const fakeEvent = { preventDefault: () => { } };
+            // Usamos un pequeño delay para que el usuario vea el texto antes de enviarse
+            setTimeout(() => handleManualSend(captured.text), 500);
+            return;
+        }
+
+        // Fallback para blobs antiguos si fuera necesario
         setLoading(true);
         try {
             const userId = session?.user?.id;
-            const response = await sendAudio(audioBlob, selectedScenario?.id, userId);
+            const response = await sendAudio(captured, selectedScenario?.id, userId);
             const userMsg = { role: 'user', content: response.userText };
             const aiMsg = {
                 role: 'assistant',
                 content: response.assistantText,
-                feedback: response.feedbackText // Store the correction separately
+                feedback: response.feedbackText
             };
             setMessages(prev => [...prev, userMsg, aiMsg]);
             if (response.audioBase64) {
@@ -112,6 +123,35 @@ export default function ChatInterface({ session }) {
             const stage = errorData.stage ? `[${errorData.stage}] ` : '';
             const errorMsg = errorData.message || errorData.details || error.message || 'Error procesando audio.';
             setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error ${stage}${errorMsg}` }]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleManualSend = async (textToSend) => {
+        if (!textToSend.trim() || loading) return;
+
+        const userMsg = { role: 'user', content: textToSend };
+        const newMessages = [...messages, userMsg];
+        setMessages(newMessages);
+        setInput('');
+        setLoading(true);
+
+        try {
+            const userId = session?.user?.id;
+            const response = await sendMessage(newMessages, selectedScenario?.id, userId);
+            setMessages(prev => [...prev, response]);
+        } catch (error) {
+            console.error('Failed to send message:', error);
+            if (error.response && error.response.status === 402) {
+                setIsPricingOpen(true);
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: '🛑 Has alcanzado tu límite gratuito. ¡Dale click a la corona 👑 para actualizar tu plan!'
+                }]);
+            } else {
+                setMessages(prev => [...prev, { role: 'assistant', content: "Error de conexión con la IA." }]);
+            }
         } finally {
             setLoading(false);
         }

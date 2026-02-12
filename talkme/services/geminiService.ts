@@ -74,11 +74,21 @@ export const generateAIChatResponse = async (
     });
 
     const result = await chat.sendMessage(message);
-    const responseText = result.response.text();
-    return JSON.parse(responseText || '{}');
+    let responseText = result.response.text();
+
+    // Limpieza de posibles bloques de código Markdown generados por la IA
+    responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    try {
+      return JSON.parse(responseText || '{}');
+    } catch (e) {
+      console.error("Error al parsear JSON de la IA:", responseText);
+      // Fallback simple si el JSON falla pero hay texto
+      return { message: responseText.slice(0, 500) };
+    }
   } catch (error) {
     console.error("Error en el cerebro de IA:", error);
-    return { message: "Lo siento, hubo un error técnico. ¿Podrías repetir?" };
+    return { message: "Lo siento, tuve un pequeño cruce de cables. ¿Podrías repetirme eso?" };
   }
 };
 
