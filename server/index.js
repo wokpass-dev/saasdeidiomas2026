@@ -585,7 +585,7 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
           },
           headers: {
             'accept': 'audio/mpeg',
-            'xi-api-key': process.env.ELEVENLABS_API_KEY,
+            'xi-api-key': (process.env.ELEVENLABS_API_KEY || "").trim(),
             'Content-Type': 'application/json',
           },
           responseType: 'arraybuffer',
