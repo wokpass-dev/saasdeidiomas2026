@@ -84,49 +84,51 @@ const ChatDashboard: React.FC<Props> = ({ user, onUpdate, onLogout }) => {
     }
   };
 
-  const startRecording = () => {
-    // Usamos el STT nativo de Google (Web Speech API) - Es gratis, rápido y oficial de Google en navegadores
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    if (!SpeechRecognition) {
-      alert("Tu navegador no soporta el reconocimiento de voz de Google. Por favor usa Chrome.");
-      return;
-    }
+      // Detección universal de formato (mp4 para Safari/iOS, webm para Chrome/Android)
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = user.language === 'en' ? 'en-US' : user.language === 'de' ? 'de-DE' : 'fr-FR';
-    recognition.continuous = false;
-    recognition.interimResults = false;
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
 
-    recognition.onstart = () => {
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        console.log(`🎙️ Grabación Lenguini finalizada: ${blob.size} bytes (${mimeType})`);
+
+        setIsLoading(true);
+        try {
+          const transcription = await transcribeAudio(blob);
+          if (transcription.trim()) {
+            handleSend(transcription);
+          }
+        } catch (error) {
+          console.error("Error en STT:", error);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      recorder.start();
       setIsRecording(true);
-      console.log("🎙️ Google STT: Escuchando...");
-    };
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      console.log("📝 Google STT: ", transcript);
-      if (transcript.trim()) {
-        handleSend(transcript);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("❌ Google STT Error:", event.error);
-      setIsRecording(false);
-    };
-
-    recognition.onend = () => {
-      setIsRecording(false);
-    };
-
-    recognition.start();
+    } catch (err) {
+      alert("No se pudo acceder al micrófono. Por favor, verifica los permisos.");
+    }
   };
 
   const stopRecording = () => {
-    // El reconocimiento de Google configurado con continuous=false se detiene solo al terminar de hablar,
-    // pero podemos forzar la parada si es necesario.
-    setIsRecording(false);
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+    }
   };
 
   return (

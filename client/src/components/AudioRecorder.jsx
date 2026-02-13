@@ -9,7 +9,13 @@ export default function AudioRecorder({ onRecordingComplete, isProcessing }) {
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorderRef.current = new MediaRecorder(stream);
+
+            // Detectar el formato soportado por el navegador (Safari usa mp4, Chrome usa webm)
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+                ? 'audio/webm'
+                : 'audio/mp4';
+
+            mediaRecorderRef.current = new MediaRecorder(stream, { mimeType });
             chunksRef.current = [];
 
             mediaRecorderRef.current.ondataavailable = (e) => {
@@ -19,7 +25,8 @@ export default function AudioRecorder({ onRecordingComplete, isProcessing }) {
             };
 
             mediaRecorderRef.current.onstop = () => {
-                const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+                const blob = new Blob(chunksRef.current, { type: mimeType });
+                console.log(`🎤 Grabación Classic finalizada: ${blob.size} bytes (${mimeType})`);
                 onRecordingComplete(blob);
 
                 // Stop all tracks

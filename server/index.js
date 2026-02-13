@@ -452,29 +452,31 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       });
     }
 
-    // 1. STT: Send to OpenAI Whisper (Keep for now as Gemini Audio Input via REST is complex)
-    currentStage = 'STT (Whisper)';
-    const path = require('path');
-    const ext = path.extname(audioFile.originalname) || '.m4a';
+    // 1. STT: Usamos Gemini 1.5 Flash para transcribir (Vive en Render, soporta mp4/webm)
+    currentStage = 'STT (Gemini)';
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const sttModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    const formData = new FormData();
-    formData.append('file', fs.createReadStream(audioFile.path), `audio${ext}`);
-    formData.append('model', 'whisper-1');
+    const audioData = fs.readFileSync(audioFile.path);
+    const audioBase64 = audioData.toString('base64');
 
-    const transcriptionResponse = await axios.post(
-      'https://api.openai.com/v1/audio/transcriptions',
-      formData,
+    // Detectamos el MIME type basándonos en la extensión o el buffer
+    const mimeType = audioFile.mimetype === 'audio/mp4' || audioFile.mimetype === 'video/mp4' ? 'audio/mp4' : 'audio/webm';
+
+    const sttResult = await sttModel.generateContent([
       {
-        headers: {
-          ...formData.getHeaders(),
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.trim() : ''}`
+        inlineData: {
+          data: audioBase64,
+          mimeType: mimeType
         }
-      }
-    );
-    const userText = transcriptionResponse.data.text;
-    console.log('User said:', userText);
+      },
+      { text: "Transcribe exactamente lo que dice el audio. Si es ruido o no hay voz, devuelve una cadena vacía." }
+    ]);
 
-    if (!userText || userText.trim().length === 0) {
+    const userText = sttResult.response.text().trim();
+    console.log('User said (Gemini STT):', userText);
+
+    if (!userText) {
       return res.json({
         userText: "",
         assistantText: "No te escuché bien, ¿podrías repetir?",
