@@ -463,14 +463,17 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     // Detectamos el MIME type basándonos en la extensión o el buffer
     const mimeType = audioFile.mimetype === 'audio/mp4' || audioFile.mimetype === 'video/mp4' ? 'audio/mp4' : 'audio/webm';
 
-    const sttResult = await sttModel.generateContent([
-      {
-        inlineData: {
-          data: inputAudioBase64,
-          mimeType: mimeType
-        }
-      },
-      { text: "Transcribe exactamente lo que dice el audio. Si es ruido o no hay voz, devuelve una cadena vacía." }
+    const sttResult = await Promise.race([
+      sttModel.generateContent([
+        {
+          inlineData: {
+            data: inputAudioBase64,
+            mimeType: mimeType
+          }
+        },
+        { text: "Transcribe exactamente lo que dice el audio. Si es ruido o no hay voz, devuelve una cadena vacía." }
+      ]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('STT Timeout')), 15000))
     ]);
 
     const userText = sttResult.response.text().trim();
@@ -535,57 +538,49 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     console.log('AI Dialogue:', assistantText);
     console.log('AI Feedback:', feedbackText);
 
-    // 3. TTS: Gemini or ElevenLabs (via Router)
-    currentStage = 'TTS';
-    // const audioBase64 = ... call router?
-    // Router `generateAudio` returns what? Buffer? ArrayBuffer?
-    // Index.js current logic handles caching.
-    // Let's keep Index.js caching logic but call Router?
-    // Actually, let's keep the existing ElevenLabs/Cache logic here for now because aiRouter audio part is just a placeholder returning null.
-    // The user wants "Gemini Free Audio". Since I haven't implemented Gemini TTS in router yet (placeholder), 
-    // I will STICK to the existing ElevenLabs Logic here but maybe try to optimize or enable Gemini later.
-    // Ideally, I should move this logic to `aiRouter.generateAudio`.
-
-    // For this step, I will leave the TTS block as is (using ElevenLabs/OpenAI keys directly from env) 
-    // to ensure voice still works while we switched the BRAIN to Gemini.
-
-    // ... (Keeping existing TTS logic below for safety) ...
+    // 3. TTS: ElevenLabs (Premium Stable Solution)
+    currentStage = 'TTS (ElevenLabs)';
     const crypto = require('crypto');
     const cacheDir = 'audio_cache';
-    if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir);
-    }
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-    const ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
+    // Ajustamos la voz según el idioma (ID de prueba por defecto)
+    const ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // Rachel
     const hash = crypto.createHash('md5').update(assistantText + ELEVENLABS_VOICE_ID).digest('hex');
     const cachePath = path.join(cacheDir, `${hash}.mp3`);
 
     let audioBase64;
 
     if (fs.existsSync(cachePath)) {
-      console.log('Serving from CACHE (Money Saved!) 💰');
-      const audioBuffer = fs.readFileSync(cachePath);
-      audioBase64 = audioBuffer.toString('base64');
+      console.log('✅ Serving from CACHE (Speed optimized) 💰');
+      audioBase64 = fs.readFileSync(cachePath).toString('base64');
     } else {
-      console.log('Generating new audio with Google TTS (FREE) 🎉');
-
       try {
-        const googleTTS = require('google-tts-api');
-        const ttsUrl = googleTTS.getAudioUrl(assistantText, {
-          lang: 'en',
-          slow: false,
-          host: 'https://translate.google.com'
+        console.log('🎙️ Generating ElevenLabs Audio...');
+        const response = await axios({
+          method: 'post',
+          url: `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+          data: {
+            text: assistantText,
+            model_id: "eleven_multilingual_v2",
+            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+          },
+          headers: {
+            'accept': 'audio/mpeg',
+            'xi-api-key': process.env.ELEVENLABS_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          responseType: 'arraybuffer',
+          timeout: 10000 // 10s timeout to prevent hanging
         });
 
-        const ttsResponse = await axios.get(ttsUrl, { responseType: 'arraybuffer' });
-
-        fs.writeFileSync(cachePath, Buffer.from(ttsResponse.data));
-        audioBase64 = Buffer.from(ttsResponse.data).toString('base64');
-
-        console.log('✅ Google TTS Success (Cost: $0.00)');
+        fs.writeFileSync(cachePath, Buffer.from(response.data));
+        audioBase64 = Buffer.from(response.data).toString('base64');
+        console.log('✅ ElevenLabs TTS Success');
       } catch (err) {
-        console.error('[ERROR] Google TTS Failed:', err.message);
-        throw err;
+        console.error('❌ ElevenLabs Error:', err.message);
+        // Fallback ultra-rápido si falla ElevenLabs para no colgar el server
+        audioBase64 = null;
       }
     }
 
