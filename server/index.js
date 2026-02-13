@@ -458,7 +458,7 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     const sttModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const audioData = fs.readFileSync(audioFile.path);
-    const audioBase64 = audioData.toString('base64');
+    const inputAudioBase64 = audioData.toString('base64');
 
     // Detectamos el MIME type basándonos en la extensión o el buffer
     const mimeType = audioFile.mimetype === 'audio/mp4' || audioFile.mimetype === 'video/mp4' ? 'audio/mp4' : 'audio/webm';
@@ -466,7 +466,7 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     const sttResult = await sttModel.generateContent([
       {
         inlineData: {
-          data: audioBase64,
+          data: inputAudioBase64,
           mimeType: mimeType
         }
       },
