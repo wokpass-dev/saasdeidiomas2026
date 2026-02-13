@@ -455,7 +455,16 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
 
     // 1. STT: Usamos Gemini 1.5 Flash para transcribir (Vive en Render, soporta mp4/webm)
     currentStage = 'STT (Gemini)';
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+    // Debug: Verificar API key
+    const apiKey = process.env.GEMINI_API_KEY;
+    console.log('🔑 GEMINI_API_KEY:', apiKey ? `${apiKey.substring(0, 10)}...` : 'UNDEFINED');
+
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY is not configured in environment variables');
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
     const sttModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const audioData = fs.readFileSync(audioFile.path);
