@@ -1,44 +1,41 @@
 
-import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { getTutorSystemPrompt } from "../constants";
 import { CEFRLevel, Language, TutorFeedback } from "../types";
 
 // The API key is injected via environment variables.
-const API_KEY = process.env.API_KEY as string;
+const API_KEY = import.meta.env.VITE_API_KEY as string;
 
 export class GeminiService {
-  // Use explicit GoogleGenAI type as per coding guidelines
-  private ai: GoogleGenAI;
+  private genAI: GoogleGenerativeAI;
 
   constructor() {
-    this.ai = new GoogleGenAI({ apiKey: API_KEY });
+    if (!API_KEY) {
+      console.error("⚠️ VITE_API_KEY not found in environment");
+    }
+    this.genAI = new GoogleGenerativeAI(API_KEY);
   }
 
   async generateResponse(
-    message: string, 
-    level: CEFRLevel, 
+    message: string,
+    level: CEFRLevel,
     language: Language,
     history: { role: 'user' | 'model', parts: { text: string }[] }[]
   ): Promise<TutorFeedback> {
     const systemInstruction = getTutorSystemPrompt(level, language);
-    
-    // Fix: Properly handle conversational content and response extraction
-    const response: GenerateContentResponse = await this.ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: [
-        ...history,
-        { role: 'user', parts: [{ text: message }] }
-      ],
-      config: {
-        systemInstruction,
+
+    const model = this.genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash',
+      systemInstruction,
+      generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT,
+          type: SchemaType.OBJECT,
           properties: {
-            response_text: { type: Type.STRING },
-            corrections: { type: Type.ARRAY, items: { type: Type.STRING } },
-            grammar_tip: { type: Type.STRING },
-            vocabulary_check: { type: Type.STRING }
+            response_text: { type: SchemaType.STRING },
+            corrections: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+            grammar_tip: { type: SchemaType.STRING },
+            vocabulary_check: { type: SchemaType.STRING }
           },
           required: ["response_text"]
         }
@@ -46,44 +43,31 @@ export class GeminiService {
     });
 
     try {
-      // Fix: Access response.text as a property, handle undefined with fallback
-      return JSON.parse(response.text || '{}') as TutorFeedback;
+      const chat = model.startChat({
+        history: history
+      });
+
+      const result = await chat.sendMessage(message);
+      const responseText = result.response.text();
+
+      return JSON.parse(responseText || '{}') as TutorFeedback;
     } catch (e) {
       console.error("Failed to parse Gemini response", e);
       return { response_text: "I'm sorry, I had trouble processing that. Can you repeat?" };
     }
   }
 
-  // Fix: Changed return type to Promise<Uint8Array> to resolve type mismatch in App.tsx lines 52 and 64
   async generateSpeech(text: string): Promise<Uint8Array> {
-    const response: GenerateContentResponse = await this.ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text }] }],
-      config: {
-        // Fix: Use Modality.AUDIO enum from @google/genai package
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' } 
-          }
-        }
-      }
-    });
-
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) throw new Error("No audio generated");
-
-    return this.decodeBase64(base64Audio);
-  }
-
-  // Fix: Manual base64 decoding implementation to Uint8Array for raw PCM data handling
-  private decodeBase64(base64: string): Uint8Array {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+    // Fallback to Google Translate TTS since Gemini TTS is not available in the standard SDK
+    try {
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
+      const response = await fetch(url);
+      const buffer = await response.arrayBuffer();
+      return new Uint8Array(buffer);
+    } catch (error) {
+      console.error("TTS error:", error);
+      throw new Error("No audio generated");
     }
-    return bytes;
   }
 }
 

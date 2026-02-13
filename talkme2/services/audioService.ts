@@ -1,19 +1,24 @@
 
 export async function playPcmAudio(data: Uint8Array) {
-  const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-  const dataInt16 = new Int16Array(data.buffer);
-  const buffer = ctx.createBuffer(1, dataInt16.length, 24000);
-  const channelData = buffer.getChannelData(0);
+  // Google Translate TTS returns MP3, not PCM
+  try {
+    const blob = new Blob([data.buffer as ArrayBuffer], { type: 'audio/mpeg' });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
 
-  for (let i = 0; i < dataInt16.length; i++) {
-    channelData[i] = dataInt16[i] / 32768.0;
+    return new Promise<void>((resolve, reject) => {
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.onerror = (e) => {
+        URL.revokeObjectURL(url);
+        reject(e);
+      };
+      audio.play().catch(reject);
+    });
+  } catch (error) {
+    console.error("Audio playback error:", error);
+    throw error;
   }
-
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  source.connect(ctx.destination);
-  source.start();
-  return new Promise((resolve) => {
-    source.onended = resolve;
-  });
 }
