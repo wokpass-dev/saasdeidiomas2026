@@ -454,27 +454,54 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     }
 
 
+
     // 1. STT: Usamos OpenAI Whisper para transcribir (más estable que Gemini)
     currentStage = 'STT (Whisper)';
 
-    console.log('🎤 Transcribiendo audio con OpenAI Whisper...');
-
-    const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(audioFile.path),
-      model: 'whisper-1',
-      language: 'en', // Puedes cambiar según el idioma del usuario
+    // Debug: Ver qué archivo recibimos
+    console.log('📁 Archivo recibido:', {
+      originalname: audioFile.originalname,
+      mimetype: audioFile.mimetype,
+      size: audioFile.size,
+      path: audioFile.path
     });
 
-    const userText = transcription.text.trim();
-    console.log('User said (Whisper STT):', userText);
+    // FIX: Multer guarda archivos SIN extensión. Whisper necesita la extensión .webm
+    // para detectar el formato correctamente.
+    const originalPath = audioFile.path;
+    const newPath = originalPath + '.webm';
 
-    if (!userText) {
-      return res.json({
-        userText: "",
-        assistantText: "No te escuché bien, ¿podrías repetir?",
-        feedbackText: null,
-        audioBase64: null
+    console.log('🔄 Renombrando archivo:', originalPath, '→', newPath);
+    fs.renameSync(originalPath, newPath);
+
+    console.log('🎤 Transcribiendo audio con OpenAI Whisper...');
+
+    try {
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(newPath),
+        model: 'whisper-1',
+        language: 'en', // Puedes cambiar según el idioma del usuario
       });
+
+      const userText = transcription.text.trim();
+      console.log('✅ Whisper STT exitoso:', userText);
+
+      // Limpiar el archivo renombrado
+      cleanup(newPath);
+
+      if (!userText) {
+        return res.json({
+          userText: "",
+          assistantText: "No te escuché bien, ¿podrías repetir?",
+          feedbackText: null,
+          audioBase64: null
+        });
+      }
+    } catch (whisperError) {
+      console.error('❌ Error en Whisper STT:', whisperError.message);
+      // Limpiar archivo en caso de error
+      if (fs.existsSync(newPath)) cleanup(newPath);
+      throw whisperError; // Re-lanzar para que lo maneje el catch principal
     }
 
     // 2. Chat: Use aiRouter (Gemini Flash)
