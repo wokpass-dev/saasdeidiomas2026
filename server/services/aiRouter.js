@@ -270,12 +270,35 @@ async function generateAudio(text, voiceId = "gemini_standard") {
 }
 
 async function callElevenLabs(text) {
-    // Implementation using axios
-    // ... logic from index.js ...
-    // Placeholder returning null to force index.js usage or implement here fully.
-    // Current index.js has full logic, so maybe we keep it there for now or move it here.
-    // Moving it here is cleaner.
-    return null;
+    if (!ELEVENLABS_API_KEY) return null;
+
+    try {
+        console.log('🎙️ [aiRouter] Generating ElevenLabs Audio...');
+        const response = await axios({
+            method: 'post',
+            url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`, // Rachel
+            data: {
+                text: text,
+                model_id: "eleven_multilingual_v2",
+                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+            },
+            headers: {
+                'accept': 'audio/mpeg',
+                'xi-api-key': ELEVENLABS_API_KEY,
+                'Content-Type': 'application/json',
+            },
+            responseType: 'arraybuffer',
+            timeout: 10000
+        });
+
+        return Buffer.from(response.data).toString('base64');
+    } catch (err) {
+        console.error('❌ [aiRouter] ElevenLabs Error:', err.message);
+        if (err.response && err.response.status === 401) {
+            console.error("🔑 Tip: Error 401 means your ElevenLabs API Key is invalid or not configured correctly in Render.");
+        }
+        return null;
+    }
 }
 
 module.exports = { generateResponse, generateAudio, getTalkMePrompt, PERSONAS, cleanTextForTTS };

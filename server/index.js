@@ -573,32 +573,9 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       console.log('✅ Serving from CACHE (Speed optimized) 💰');
       audioBase64 = fs.readFileSync(cachePath).toString('base64');
     } else {
-      try {
-        console.log('🎙️ Generating ElevenLabs Audio...');
-        const response = await axios({
-          method: 'post',
-          url: `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
-          data: {
-            text: assistantText,
-            model_id: "eleven_multilingual_v2",
-            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-          },
-          headers: {
-            'accept': 'audio/mpeg',
-            'xi-api-key': (process.env.ELEVENLABS_API_KEY || "").trim(),
-            'Content-Type': 'application/json',
-          },
-          responseType: 'arraybuffer',
-          timeout: 10000 // 10s timeout to prevent hanging
-        });
-
-        fs.writeFileSync(cachePath, Buffer.from(response.data));
-        audioBase64 = Buffer.from(response.data).toString('base64');
-        console.log('✅ ElevenLabs TTS Success');
-      } catch (err) {
-        console.error('❌ ElevenLabs Error:', err.message);
-        // Fallback ultra-rápido si falla ElevenLabs para no colgar el server
-        audioBase64 = null;
+      audioBase64 = await generateAudio(assistantText);
+      if (audioBase64) {
+        fs.writeFileSync(cachePath, Buffer.from(audioBase64, 'base64'));
       }
     }
 
