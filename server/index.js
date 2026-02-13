@@ -476,6 +476,8 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
 
     console.log('🎤 Transcribiendo audio con OpenAI Whisper...');
 
+    let userText = ''; // Declarar fuera del try
+
     try {
       const transcription = await openai.audio.transcriptions.create({
         file: fs.createReadStream(newPath),
@@ -483,7 +485,7 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
         language: 'en', // Puedes cambiar según el idioma del usuario
       });
 
-      const userText = transcription.text.trim();
+      userText = transcription.text.trim();
       console.log('✅ Whisper STT exitoso:', userText);
 
       // Limpiar el archivo renombrado
