@@ -8,10 +8,10 @@ require('dotenv').config();
 const { SYLLABUS } = require('../data/syllabus');
 
 // --- Configuration ---
-const GENAI_API_KEY = process.env.GEMINI_API_KEY; // Google AI Studio Key
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const GENAI_API_KEY = (process.env.GEMINI_API_KEY || "").trim();
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || "").trim();
+const ELEVENLABS_API_KEY = (process.env.ELEVENLABS_API_KEY || "").trim();
 
 // Check mandatory key
 if (!GENAI_API_KEY) {
@@ -132,22 +132,31 @@ async function callGeminiFlash(message, systemPrompt, history) {
     try {
         const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
         // Using gemini-1.5-flash-latest for SDK v0.24.1 compatibility
-        const model = genAI.getGenerativeModel({
+        let model = genAI.getGenerativeModel({
             model: "gemini-1.5-flash",
             systemInstruction: systemPrompt
         });
 
-        const chat = model.startChat({
-            history: formatHistoryForGemini(history),
-            generationConfig: {
-                maxOutputTokens: 500,
-                temperature: 0.7,
+        let chat;
+        try {
+            chat = model.startChat({
+                history: formatHistoryForGemini(history),
+                generationConfig: { maxOutputTokens: 500, temperature: 0.7 }
+            });
+            const result = await chat.sendMessage(message);
+            const response = await result.response;
+            return response.text();
+        } catch (m15Error) {
+            if (m15Error.message.includes('404')) {
+                console.warn("⚠️ Gemini 1.5 Flash 404. Trying Gemini Pro fallback...");
+                model = genAI.getGenerativeModel({ model: "gemini-pro" });
+                // Note: gemini-pro (v1.0) doesn't support systemInstruction in some versions, 
+                // so we might need to prepend it to the message if it fails again.
+                const result = await model.generateContent(systemPrompt + "\n\nUser: " + message);
+                return result.response.text();
             }
-        });
-
-        const result = await chat.sendMessage(message);
-        const response = await result.response;
-        return response.text();
+            throw m15Error;
+        }
     } catch (err) {
         console.error("❌ Gemini API Error:", err.message);
         if (err.message.includes('422')) {
