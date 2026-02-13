@@ -131,9 +131,9 @@ async function callGeminiFlash(message, systemPrompt, history) {
 
     try {
         const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
-        // Using 1.5-flash for maximum regional compatibility as requested
+        // Using gemini-1.5-flash-latest for SDK v0.24.1 compatibility
         const model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: "gemini-1.5-flash-latest",
             systemInstruction: systemPrompt
         });
 
