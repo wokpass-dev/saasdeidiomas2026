@@ -453,41 +453,20 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       });
     }
 
-    // 1. STT: Usamos Gemini 1.5 Flash para transcribir (Vive en Render, soporta mp4/webm)
-    currentStage = 'STT (Gemini)';
 
-    // Debug: Verificar API key
-    const apiKey = process.env.GEMINI_API_KEY;
-    console.log('🔑 GEMINI_API_KEY:', apiKey ? `${apiKey.substring(0, 10)}...` : 'UNDEFINED');
+    // 1. STT: Usamos OpenAI Whisper para transcribir (más estable que Gemini)
+    currentStage = 'STT (Whisper)';
 
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is not configured in environment variables');
-    }
+    console.log('🎤 Transcribiendo audio con OpenAI Whisper...');
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const sttModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(audioFile.path),
+      model: 'whisper-1',
+      language: 'en', // Puedes cambiar según el idioma del usuario
+    });
 
-    const audioData = fs.readFileSync(audioFile.path);
-    const inputAudioBase64 = audioData.toString('base64');
-
-    // Detectamos el MIME type basándonos en la extensión o el buffer
-    const mimeType = audioFile.mimetype === 'audio/mp4' || audioFile.mimetype === 'video/mp4' ? 'audio/mp4' : 'audio/webm';
-
-    const sttResult = await Promise.race([
-      sttModel.generateContent([
-        {
-          inlineData: {
-            data: inputAudioBase64,
-            mimeType: mimeType
-          }
-        },
-        { text: "Transcribe exactamente lo que dice el audio. Si es ruido o no hay voz, devuelve una cadena vacía." }
-      ]),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('STT Timeout')), 15000))
-    ]);
-
-    const userText = sttResult.response.text().trim();
-    console.log('User said (Gemini STT):', userText);
+    const userText = transcription.text.trim();
+    console.log('User said (Whisper STT):', userText);
 
     if (!userText) {
       return res.json({
