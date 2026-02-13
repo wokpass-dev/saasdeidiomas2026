@@ -93,27 +93,41 @@ export const generateAIChatResponse = async (
 };
 
 export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
-  if (!GEMINI_API_KEY) return "";
+  if (!GEMINI_API_KEY) {
+    console.error("❌ Lenguini: No API Key found");
+    return "";
+  }
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const reader = new FileReader();
-  const base64Promise = new Promise<string>((resolve) => {
-    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+  const base64Promise = new Promise<string>((resolve, reject) => {
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
     reader.readAsDataURL(audioBlob);
   });
 
-  const base64Data = await base64Promise;
-  const mimeType = audioBlob.type || 'audio/webm';
-
   try {
+    const base64Data = await base64Promise;
+    // Forzamos un mimeType compatible con Gemini
+    const mimeType = audioBlob.type.includes('mp4') ? 'audio/mp4' : 'audio/webm';
+
+    console.log(`🎙️ Lenguini STT enviando: ${audioBlob.size} bytes (${mimeType})`);
+
     const result = await model.generateContent([
       { inlineData: { data: base64Data, mimeType: mimeType } },
-      { text: "Transcribe exactamente lo que dice el audio en su idioma original. Si hay ruido de fondo, ignóralo. Si no hay voz clara, devuelve una cadena vacía." }
+      { text: "Transcribe exactamente lo que dice el audio. Devuelve solo el texto." }
     ]);
-    return result.response.text().trim();
+
+    const text = result.response.text().trim();
+    console.log("📝 Lenguini STT Éxito:", text);
+    return text;
   } catch (error) {
-    console.error("Error STT:", error);
+    console.error("❌ Lenguini STT Falló:", error);
     return "";
   }
 };
