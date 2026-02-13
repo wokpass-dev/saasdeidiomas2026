@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const FormData = require('form-data');
 const axios = require('axios');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Configure Multer for temp storage
 const uploadDir = 'uploads';
