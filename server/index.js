@@ -465,7 +465,7 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const sttModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const sttModel = genAI.getGenerativeModel({ model: "gemini-pro" });
 
     const audioData = fs.readFileSync(audioFile.path);
     const inputAudioBase64 = audioData.toString('base64');
