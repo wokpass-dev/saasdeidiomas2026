@@ -8,13 +8,33 @@ export default function AudioRecorder({ onRecordingComplete, isProcessing }) {
 
     const startRecording = async () => {
         try {
+            console.log("🎤 Iniciando acceso al micrófono...");
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error("Tu navegador no soporta la grabación de audio o no estás en un entorno seguro (HTTPS).");
+            }
+
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            console.log("✅ Acceso al micrófono concedido.");
 
-            // Detectar el formato soportado por el navegador (Safari usa mp4, Chrome usa webm)
-            const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-                ? 'audio/webm'
-                : 'audio/mp4';
+            // Detectar el formato soportado por el navegador
+            const mimeTypes = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/mp4',
+                'audio/aac'
+            ];
 
+            let mimeType = '';
+            for (const type of mimeTypes) {
+                if (MediaRecorder.isTypeSupported(type)) {
+                    mimeType = type;
+                    break;
+                }
+            }
+
+            console.log(`🎤 Usando MIME Type: ${mimeType}`);
             mediaRecorderRef.current = new MediaRecorder(stream, { mimeType });
             chunksRef.current = [];
 
@@ -26,18 +46,20 @@ export default function AudioRecorder({ onRecordingComplete, isProcessing }) {
 
             mediaRecorderRef.current.onstop = () => {
                 const blob = new Blob(chunksRef.current, { type: mimeType });
-                console.log(`🎤 Grabación Classic finalizada: ${blob.size} bytes (${mimeType})`);
+                console.log(`🎤 Grabación finalizada: ${blob.size} bytes (${mimeType})`);
                 onRecordingComplete(blob);
-
-                // Stop all tracks
                 stream.getTracks().forEach(track => track.stop());
             };
 
             mediaRecorderRef.current.start();
             setIsRecording(true);
         } catch (err) {
-            console.error("Error accessing microphone:", err);
-            alert("Error accessing microphone: " + err.message);
+            console.error("❌ Error accediendo al micrófono:", err);
+            let userMessage = "No se pudo acceder al micrófono. ";
+            if (err.name === 'NotAllowedError') userMessage += "Por favor, permite el acceso al micrófono en la configuración de tu navegador.";
+            else if (err.name === 'NotFoundError') userMessage += "No se encontró ningún micrófono conectado.";
+            else userMessage += err.message;
+            alert(userMessage);
         }
     };
 
