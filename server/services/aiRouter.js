@@ -1,4 +1,4 @@
-// aiRouter.js for TalkMe (CommonJS) - V3.5 BLINDADO (REST API)
+// aiRouter.js for TalkMe (CommonJS) - V3.6 MODEL HUNTER (REST API)
 const axios = require('axios');
 require('dotenv').config();
 
@@ -11,7 +11,7 @@ const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
 const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY || process.env.ELEVENLAB_API_KEY);
 
 // --- Diagnostic Startup Log ---
-console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V3.5:");
+console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V3.6:");
 console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ ' + GENAI_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
 console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ ' + ELEVENLABS_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
 
@@ -19,7 +19,8 @@ const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
 const PERSONAS = {
     ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales. 
-    Responde siempre en español latino neutro, de forma empática y profesional.`
+    Responde siempre en español latino neutro, de forma empática y profesional.
+    No vendas agresivamente. Escucha primero, valida sentimientos, y luego sugiere cómo Puentes Globales puede ayudar.`
 };
 
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
@@ -47,11 +48,11 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     let responseText = null;
     let systemPrompt = PERSONAS[personaKeyOrPrompt] || personaKeyOrPrompt;
 
-    // 1. Gemini via REST (Saltamos el SDK para evitar errores 404 de versión)
+    // 1. Gemini Model Hunter (REST)
     try {
-        responseText = await callGeminiREST(userMessage, systemPrompt, history);
+        responseText = await callGeminiModelHunter(userMessage, systemPrompt, history);
     } catch (error) {
-        console.warn("⚠️ [aiRouter] Gemini REST failed.");
+        console.warn("⚠️ [aiRouter] Gemini Model Hunter failed.");
     }
 
     // 2. Fallbacks
@@ -67,37 +68,50 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     return responseText || "Lo siento, tuve un problema técnico. ¿Podrías repetirlo?";
 }
 
-async function callGeminiREST(message, systemPrompt, history) {
+async function callGeminiModelHunter(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
 
-    // Usamos la API REST directamente para tener control total del error
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GENAI_API_KEY}`;
+    // Google changes endpoints and model names often. We hunt for the working one.
+    const probes = [
+        { ver: 'v1beta', mod: 'gemini-1.5-flash-latest' },
+        { ver: 'v1', mod: 'gemini-1.5-flash' },
+        { ver: 'v1beta', mod: 'gemini-1.5-flash' },
+        { ver: 'v1beta', mod: 'gemini-1.5-pro-latest' },
+        { ver: 'v1beta', mod: 'gemini-pro' } // Legacy fallback
+    ];
 
-    const payload = {
-        contents: [
-            ...formatHistoryForREST(history),
-            { role: "user", parts: [{ text: message }] }
-        ],
-        system_instruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
-    };
+    for (const probe of probes) {
+        const url = `https://generativelanguage.googleapis.com/${probe.ver}/models/${probe.mod}:generateContent?key=${GENAI_API_KEY}`;
 
-    try {
-        console.log("🤖 [aiRouter] Intentando Gemini 1.5 Flash (vía REST)...");
-        const response = await axios.post(url, payload, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 10000
-        });
+        try {
+            console.log(`🤖 [aiRouter] Probando Gemini: ${probe.mod} (${probe.ver})`);
+            const payload = {
+                contents: [
+                    ...formatHistoryForREST(history),
+                    { role: "user", parts: [{ text: message }] }
+                ],
+                system_instruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
+            };
 
-        if (response.data.candidates && response.data.candidates[0].content) {
-            return response.data.candidates[0].content.parts[0].text;
+            const response = await axios.post(url, payload, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 12000
+            });
+
+            if (response.data.candidates && response.data.candidates[0].content) {
+                console.log(`✅ [aiRouter] ¡Éxito con ${probe.mod}!`);
+                return response.data.candidates[0].content.parts[0].text;
+            }
+        } catch (err) {
+            // Log details only if it's NOT a 404 (we expect 404s during hunting)
+            if (err.response && err.response.status !== 404) {
+                console.error(`❌ [aiRouter] Error crítico en ${probe.mod}:`, JSON.stringify(err.response.data));
+            } else if (!err.response) {
+                console.error(`❌ [aiRouter] Error de red probando ${probe.mod}:`, err.message);
+            }
+            continue; // Move to next probe
         }
-    } catch (err) {
-        const detail = err.response ? JSON.stringify(err.response.data) : err.message;
-        console.error("❌ [aiRouter] Gemini REST ERROR CRÍTICO:", detail);
-
-        // Si falla el Flash, probamos el Pro como último recurso vía REST
-        return null;
     }
     return null;
 }
@@ -167,7 +181,6 @@ function formatHistoryForREST(history) {
             lastRole = role;
         }
     }
-    // Gemini REST must start with 'user'
     if (formatted.length > 0 && formatted[0].role !== 'user') formatted.shift();
     return formatted;
 }
