@@ -81,53 +81,67 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 async function callGeminiStable(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
 
-    // v1beta suele ser más receptivo con gemini-1.5-flash-latest
-    const probes = [
-        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GENAI_API_KEY}`, useSystem: true },
-        { url: `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${GENAI_API_KEY}`, useSystem: false }
+    // Lista exhaustiva de modelos y versiones para romper el 404
+    const apiVersions = ['v1beta', 'v1'];
+    const modelNames = [
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro",
+        "gemini-1.0-pro",
+        "gemini-pro"
     ];
 
-    for (const probe of probes) {
-        let payload;
+    for (const ver of apiVersions) {
+        for (const model of modelNames) {
+            const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${GENAI_API_KEY}`;
 
-        if (probe.useSystem) {
-            payload = {
-                system_instruction: { parts: [{ text: systemPrompt }] },
-                contents: [
-                    ...formatHistoryForREST(history),
-                    { role: "user", parts: [{ text: message }] }
-                ],
-                generationConfig: { maxOutputTokens: 1000, temperature: 0.7, responseMimeType: "application/json" }
-            };
-        } else {
-            payload = {
-                contents: [
-                    { role: "user", parts: [{ text: `INSTRUCTIONS: ${systemPrompt}` }] },
-                    { role: "model", parts: [{ text: "Understood. I will act according to those instructions and respond in JSON." }] },
-                    ...formatHistoryForREST(history),
-                    { role: "user", parts: [{ text: message }] }
-                ],
-                generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
-            };
-        }
+            // Intentamos enviar system_instruction solo si usamos 1.5 en v1beta
+            const useSystemField = (ver === 'v1beta' && model.includes('1.5'));
 
-        try {
-            console.log(`🤖 [aiRouter] Intentando Gemini... (${probe.url.includes('v1beta') ? 'v1beta' : 'v1'})`);
-            const response = await axios.post(probe.url, payload, {
-                headers: { 'Content-Type': 'application/json' },
-                timeout: 12000
-            });
-
-            if (response.data.candidates && response.data.candidates[0].content) {
-                console.log("✅ [aiRouter] Gemini respondió exitosamente.");
-                return response.data.candidates[0].content.parts[0].text;
+            let payload;
+            if (useSystemField) {
+                payload = {
+                    system_instruction: { parts: [{ text: systemPrompt }] },
+                    contents: [
+                        ...formatHistoryForREST(history),
+                        { role: "user", parts: [{ text: message }] }
+                    ],
+                    generationConfig: { maxOutputTokens: 1000, temperature: 0.7, responseMimeType: "application/json" }
+                };
+            } else {
+                payload = {
+                    contents: [
+                        { role: "user", parts: [{ text: `INSTRUCTIONS: ${systemPrompt}\n\nIMPORTANT: Respond ONLY in JSON format following the instructions.` }] },
+                        { role: "model", parts: [{ text: "Understood. I will act according to those instructions and respond in JSON." }] },
+                        ...formatHistoryForREST(history),
+                        { role: "user", parts: [{ text: message }] }
+                    ],
+                    generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
+                };
             }
-        } catch (err) {
-            const detail = err.response ? JSON.stringify(err.response.data) : err.message;
-            console.info(`ℹ️ [aiRouter] Sonda Gemini falló: ${detail.substring(0, 150)}...`);
-            continue;
+
+            try {
+                console.log(`🤖 [aiRouter] Probando Gemini: ${model} (${ver})...`);
+                const response = await axios.post(url, payload, {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 10000
+                });
+
+                if (response.data.candidates && response.data.candidates[0].content) {
+                    console.log(`✅ [aiRouter] ¡Éxito con ${model} en ${ver}!`);
+                    return response.data.candidates[0].content.parts[0].text;
+                }
+            } catch (err) {
+                const status = err.response ? err.response.status : 'ERR';
+                // Solo logeamos errores que no sean 404 para no ensuciar, a menos que sea el último intento
+                if (status !== 404) {
+                    console.info(`ℹ️ [aiRouter] ${model} (${ver}) falló con status ${status}`);
+                }
+            }
         }
     }
+
+    console.error("❌ [aiRouter] Ninguna combinación de Gemini funcionó.");
     return null;
 }
 
@@ -166,7 +180,6 @@ async function generateAudio(text) {
     if (GENAI_API_KEY) {
         try {
             console.log(`🎙️ [aiRouter] Generando Voz con GOOGLE...`);
-            // Nota: La API Key de Gemini suele dar acceso a TTS si está habilitada en el mismo proyecto de Google Cloud
             const googleUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GENAI_API_KEY}`;
 
             const response = await axios.post(googleUrl, {
@@ -180,7 +193,8 @@ async function generateAudio(text) {
                 return response.data.audioContent;
             }
         } catch (err) {
-            console.warn("⚠️ [aiRouter] Google TTS falló o no está habilitada. Intentando ElevenLabs...");
+            const detail = err.response ? JSON.stringify(err.response.data) : err.message;
+            console.warn(`⚠️ [aiRouter] Google TTS falló: ${detail.substring(0, 100)}. Intentando ElevenLabs...`);
         }
     }
 
