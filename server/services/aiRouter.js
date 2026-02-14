@@ -1,4 +1,4 @@
-// aiRouter.js for TalkMe (CommonJS) - V3.3 FINAL REPAIR
+// aiRouter.js for TalkMe (CommonJS) - V3.4 SUPER LOGS
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 require('dotenv').config();
@@ -74,10 +74,16 @@ async function callGemini(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
     const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
 
-    // Common stable model names
-    const modelNames = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+    // Common stable model names and variations
+    const modelVariations = [
+        "gemini-1.5-flash",
+        "models/gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "models/gemini-1.5-pro",
+        "gemini-pro"
+    ];
 
-    for (const name of modelNames) {
+    for (const name of modelVariations) {
         try {
             console.log(`🤖 [aiRouter] Intentando Gemini: ${name}`);
             const model = genAI.getGenerativeModel({
@@ -91,13 +97,16 @@ async function callGemini(message, systemPrompt, history) {
                     generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
                 });
                 const result = await chat.sendMessage(message);
-                return (await result.response).text();
+                const text = (await result.response).text();
+                if (text) return text;
             } else {
                 const result = await model.generateContent(systemPrompt + "\n\nUser: " + message);
-                return (await result.response).text();
+                const text = (await result.response).text();
+                if (text) return text;
             }
         } catch (err) {
-            console.warn(`❌ [aiRouter] Gemini ${name} falló.`);
+            // LOG DEL ERROR REAL PARA DIAGNÓSTICO
+            console.error(`❌ [aiRouter] Gemini ${name} ERROR TÉCNICO:`, err.message);
             continue;
         }
     }
@@ -115,7 +124,10 @@ async function callOpenAI(message, systemPrompt, history) {
             timeout: 10000
         });
         return res.data.choices[0].message.content;
-    } catch (e) { return null; }
+    } catch (e) {
+        console.error("❌ [aiRouter] OpenAI Fallback Error:", e.message);
+        return null;
+    }
 }
 
 async function callDeepSeek(message, systemPrompt, history) {
@@ -129,7 +141,10 @@ async function callDeepSeek(message, systemPrompt, history) {
             timeout: 10000
         });
         return res.data.choices[0].message.content;
-    } catch (e) { return null; }
+    } catch (e) {
+        console.error("❌ [aiRouter] DeepSeek Fallback Error:", e.message);
+        return null;
+    }
 }
 
 async function generateAudio(text) {
