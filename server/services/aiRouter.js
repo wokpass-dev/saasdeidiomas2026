@@ -1,4 +1,4 @@
-// aiRouter.js for TalkMe (CommonJS) - V3.7 THE UNSTOPPABLE
+// aiRouter.js for TalkMe (CommonJS) - V3.8 THE PURIST (REST API)
 const axios = require('axios');
 require('dotenv').config();
 
@@ -11,37 +11,37 @@ const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
 const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY || process.env.ELEVENLAB_API_KEY);
 
 // --- Diagnostic Startup Log ---
-console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V3.7:");
+console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V3.8:");
 console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ ' + GENAI_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
-console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ ' + ELEVENLABS_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
+console.log(`- OpenAI API Key: ${OPENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
 
 const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
 const PERSONAS = {
-    ALEX_MIGRATION: `Eres Alex, asistente de Puentes Globales. Responde en español latino, empático y profesional.`
+    ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales. 
+    Responde siempre en español latino neutro, de forma empática y profesional.`
 };
 
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
     const langKey = language.toLowerCase().substring(0, 2);
     const syllabus = SYLLABUS_FULL[langKey]?.[level] || SYLLABUS_FULL['en']['A1'];
-    return `You are TalkMe, a tutor for ${language} at level ${level}. Goal: ${syllabus.goal}. 
-    Return ONLY a JSON object: {"message": "English response", "correction": "fix", "tip": "suggestion"}`;
+    return `You are TalkMe, an Adaptive AI Language Partner. speak at level ${level}. 
+    Return ONLY a JSON object: {"message": "...", "correction": "...", "tip": "..."}`;
 };
 
 async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATION', history = []) {
     let responseText = null;
     let systemPrompt = PERSONAS[personaKeyOrPrompt] || personaKeyOrPrompt;
 
-    // 1. Gemini Model Hunter (REST)
+    // 1. Gemini Pure Mode (REST)
     try {
-        responseText = await callGeminiREST(userMessage, systemPrompt, history);
+        responseText = await callGeminiPure(userMessage, systemPrompt, history);
     } catch (error) {
-        console.warn("⚠️ [aiRouter] Gemini Model Hunter total failure.");
+        console.warn("⚠️ [aiRouter] Gemini Pure Mode failed.");
     }
 
     // 2. Fallbacks
     if (!responseText) {
-        console.log("⚠️ [aiRouter] Falling back to secondary providers...");
         if (DEEPSEEK_API_KEY) {
             try { responseText = await callDeepSeek(userMessage, systemPrompt, history); } catch (e) { }
         }
@@ -53,61 +53,38 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     return responseText || "Lo siento, tuve un problema técnico. ¿Podrías repetirlo?";
 }
 
-async function callGeminiREST(message, systemPrompt, history) {
+async function callGeminiPure(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
 
-    const probes = [
-        { ver: 'v1beta', mod: 'gemini-1.5-flash-latest' },
-        { ver: 'v1beta', mod: 'gemini-1.5-flash' },
-        { ver: 'v1beta', mod: 'gemini-1.5-pro-latest' },
-        { ver: 'v1', mod: 'gemini-1.5-flash' }, // v1 doesn't support system_instruction in some cases
-        { ver: 'v1beta', mod: 'gemini-pro' }
-    ];
+    // Using v1beta as it's the most compatible
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GENAI_API_KEY}`;
 
-    for (const probe of probes) {
-        const url = `https://generativelanguage.googleapis.com/${probe.ver}/models/${probe.mod}:generateContent?key=${GENAI_API_KEY}`;
+    // INJECT SYSTEM PROMPT INTO HISTORY to avoid 'system_instruction' 400 errors
+    const payload = {
+        contents: [
+            { role: "user", parts: [{ text: `INSTRUCTIONS: ${systemPrompt}` }] },
+            { role: "model", parts: [{ text: "Understood. I will follow these instructions strictly." }] },
+            ...formatHistoryForREST(history),
+            { role: "user", parts: [{ text: message }] }
+        ],
+        generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
+    };
 
-        try {
-            console.log(`🤖 [aiRouter] Probando Gemini: ${probe.mod} (${probe.ver})`);
+    try {
+        console.log("🤖 [aiRouter] Intentando Gemini 1.5 Flash (Modo Puro)...");
+        const response = await axios.post(url, payload, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 12000
+        });
 
-            // CONSTRUCT PAYLOAD based on capability
-            let payload = {
-                contents: [
-                    ...formatHistoryForREST(history),
-                    { role: "user", parts: [{ text: message }] }
-                ],
-                generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
-            };
-
-            // Only add system_instruction for v1beta or compatible models
-            if (probe.ver === 'v1beta' || probe.mod.includes('1.5')) {
-                payload.system_instruction = { parts: [{ text: systemPrompt }] };
-            } else {
-                // Prepend system prompt to the user message for older/v1 models
-                payload.contents[payload.contents.length - 1].parts[0].text = `${systemPrompt}\n\nUser: ${message}`;
-            }
-
-            const response = await axios.post(url, payload, {
-                headers: { 'Content-Type': 'application/json' },
-                timeout: 12000
-            });
-
-            if (response.data.candidates && response.data.candidates[0].content) {
-                console.log(`✅ [aiRouter] ¡Éxito con ${probe.mod}!`);
-                return response.data.candidates[0].content.parts[0].text;
-            }
-        } catch (err) {
-            const status = err.response?.status;
-            const data = err.response?.data;
-
-            // If it's a 400 about system_instruction, we log it and try the next fallbacks
-            if (status === 400) {
-                console.warn(`⚠️ [aiRouter] ${probe.mod} rejected payload (likely system_instruction). Error: ${JSON.stringify(data)}`);
-            } else if (status !== 404) {
-                console.error(`❌ [aiRouter] ${probe.mod} error ${status}:`, JSON.stringify(data));
-            }
-            continue;
+        if (response.data.candidates && response.data.candidates[0].content) {
+            console.log("✅ [aiRouter] Gemini respondió exitosamente.");
+            return response.data.candidates[0].content.parts[0].text;
         }
+    } catch (err) {
+        const detail = err.response ? JSON.stringify(err.response.data) : err.message;
+        console.error("❌ [aiRouter] Gemini Pure Error:", detail);
+        return null;
     }
     return null;
 }
@@ -152,9 +129,7 @@ async function generateAudio(text) {
             timeout: 20000
         });
         return Buffer.from(response.data).toString('base64');
-    } catch (err) {
-        return null;
-    }
+    } catch (err) { return null; }
 }
 
 function formatHistoryForREST(history) {
