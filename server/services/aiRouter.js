@@ -131,9 +131,9 @@ async function callGeminiFlash(message, systemPrompt, history) {
 
     try {
         const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
-        // Using gemini-1.5-flash-latest for SDK v0.24.1 compatibility
+        // Using gemini-1.5-flash-latest for best stability
         let model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: "gemini-1.5-flash-latest",
             systemInstruction: systemPrompt
         });
 
@@ -141,19 +141,23 @@ async function callGeminiFlash(message, systemPrompt, history) {
         try {
             chat = model.startChat({
                 history: formatHistoryForGemini(history),
-                generationConfig: { maxOutputTokens: 500, temperature: 0.7 }
+                generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
             });
             const result = await chat.sendMessage(message);
             const response = await result.response;
             return response.text();
         } catch (m15Error) {
-            if (m15Error.message.includes('404')) {
-                console.warn("⚠️ Gemini 1.5 Flash 404. Trying Gemini Pro fallback...");
-                model = genAI.getGenerativeModel({ model: "gemini-pro" });
-                // Note: gemini-pro (v1.0) doesn't support systemInstruction in some versions, 
-                // so we might need to prepend it to the message if it fails again.
-                const result = await model.generateContent(systemPrompt + "\n\nUser: " + message);
-                return result.response.text();
+            // Handle 404 or other errors by falling back to 1.5 Pro
+            if (m15Error.message.includes('404') || m15Error.message.includes('not found')) {
+                console.warn("⚠️ Gemini 1.5 Flash issue. Trying Gemini 1.5 Pro latest...");
+                const fallbackModel = genAI.getGenerativeModel({
+                    model: "gemini-1.5-pro-latest",
+                    systemInstruction: systemPrompt
+                });
+
+                const result = await fallbackModel.generateContent(message);
+                const response = await result.response;
+                return response.text();
             }
             throw m15Error;
         }
