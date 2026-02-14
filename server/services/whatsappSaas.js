@@ -6,11 +6,8 @@ const QRCode = require('qrcode');
 const fs = require('fs');
 const OpenAI = require('openai');
 const copperService = require('./copperService'); // Import Copper CRM
+const { generateResponse, generateAudio } = require('./aiRouter');
 
-// Initialize OpenAI
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.trim() : ''
-});
 
 // Environment / Constants
 const sessionsDir = 'sessions';
@@ -46,19 +43,31 @@ const BUSINESS_TEMPLATES = {
     2. Para agendar, pide Nombre y DNI.
     3. Sé extremandamente formal, amable y profesional 🦷.`,
 
-    generic: (name) => `Eres Alex 🤖, el asistente virtual de ${name}.
-    OBJETIVO: Dar soporte y vender.
-    REGLAS:
-    1. Sé breve y profesional.
-    2. Intenta cerrar la venta o resolver la duda rápido.`
+    generic: (name) => `
+    ## 🎭 SYSTEM PROMPT: ALEX WHATSAPP v1.0 (Lead Gen)
+    
+    **CONTEXTO:** Actúa como Alex, el asistente virtual de ${name}. 
+    **OBJETIVO PRINCIPAL:** Convertir al usuario en un lead calificado y **AGENDAR UNA LLAMADA** de 15 minutos para asesoría.
+
+    ### 1. ALGORITMO DE DETECCIÓN (L-SCAN)
+    Analiza el interés del usuario. Si detectas alta intención, salta directo al cierre (la llamada).
+
+    ### 2. PROTOCOLO DE CONVERSIÓN (CORE ENGINE)
+    1. **Empatía:** Valida siempre lo que el usuario dice.
+    2. **Valor:** Explica brevemente cómo ${name} resuelve su problema.
+    3. **Semilla de Cierre:** Termina siempre ofreciendo la llamada: "¿Te parece si agendamos una breve llamada mañana para explicarte los detalles?"
+
+    ### 3. REGLAS DE ORO
+    * Sé breve (máximo 2 oraciones por mensaje).
+    * Usa un tono profesional pero cercano.
+    * Si el usuario acepta la llamada, pide su EMAIL y una HORA preferida.`
 };
 
 // --- 🤖 AI LOGIC (SHARED) ---
 async function generateAIResponse(text, config) {
-    const { companyName, businessType, mode, customPrompt } = config;
+    const { companyName, businessType, customPrompt } = config;
     try {
         let systemPrompt;
-
         if (businessType === 'custom' && customPrompt) {
             systemPrompt = customPrompt;
         } else {
@@ -66,24 +75,11 @@ async function generateAIResponse(text, config) {
             systemPrompt = templateFn(companyName);
         }
 
-        // Adjust prompt based on Audio Mode
-        const modeInstruction = mode === 'voice'
-            ? " Tienes capacidad de voz. Tus respuestas deben ser cortas y conversacionales."
-            : " Responde en texto claro.";
-
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: systemPrompt + modeInstruction },
-                { role: "user", content: text }
-            ],
-            max_tokens: 200,
-            temperature: 0.7
-        });
-
-        return completion.choices[0].message.content;
+        // Usamos el router unificado (Gemini Hunter + Backups)
+        const reply = await generateResponse(text, systemPrompt, []);
+        return reply;
     } catch (err) {
-        console.error('❌ AI Error:', err.message);
+        console.error('❌ WhatsApp AI Error:', err.message);
         return "Lo siento, tuve un problema procesando tu mensaje.";
     }
 }
@@ -111,8 +107,21 @@ async function handleQRMessage(sock, msg, instanceId) {
 
         const reply = await generateAIResponse(text, config);
 
-        await sock.sendMessage(remoteJid, { text: reply });
-        console.log(`📤 Bot Replied: ${reply}`);
+        if (config.mode === 'voice') {
+            const audioBase64 = await generateAudio(reply);
+            if (audioBase64) {
+                await sock.sendMessage(remoteJid, {
+                    audio: Buffer.from(audioBase64, 'base64'),
+                    mimetype: 'audio/mp4',
+                    ptt: true
+                });
+            } else {
+                await sock.sendMessage(remoteJid, { text: reply });
+            }
+        } else {
+            await sock.sendMessage(remoteJid, { text: reply });
+        }
+        console.log(`📤 Bot Replied: ${reply} (${config.mode})`);
 
     } catch (err) {
         console.error('❌ QR Handler Error:', err.message);
@@ -147,27 +156,47 @@ async function handleCloudMessage(message) {
     const reply = await generateAIResponse(text, config);
 
     // 3. Send Reply (Using Cloud API)
-    // IMPORTANT: This requires WHATSAPP_ACCESS_TOKEN env var to be set for the server
     try {
         const axios = require('axios');
         const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
         const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 
-        await axios.post(
-            `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-            {
-                messaging_product: 'whatsapp',
-                to: from,
-                type: 'text',
-                text: { body: reply }
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
+        if (config.mode === 'voice') {
+            console.log("🎙️ [Cloud API] Modo voz detectado, generando audio...");
+            const audioBase64 = await generateAudio(reply);
+            if (audioBase64) {
+                // Para enviar audio por Cloud API se requiere subir el media primero o enviar un link.
+                // Por simplicidad en MVP, si falla el audio enviamos texto.
+                await axios.post(
+                    `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+                    {
+                        messaging_product: 'whatsapp',
+                        to: from,
+                        type: 'text',
+                        text: { body: reply + " (Voz no disponible en Cloud API MVP)" }
+                    },
+                    { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+                );
+            } else {
+                await axios.post(`https://graph.facebook.com/v18.0/${phoneNumberId}/messages`, { messaging_product: 'whatsapp', to: from, type: 'text', text: { body: reply } }, { headers: { 'Authorization': `Bearer ${accessToken}` } });
             }
-        );
+        } else {
+            await axios.post(
+                `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+                {
+                    messaging_product: 'whatsapp',
+                    to: from,
+                    type: 'text',
+                    text: { body: reply }
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+        }
         console.log(`📤 Cloud API Replied: ${reply}`);
     } catch (error) {
         console.error('❌ Cloud API Send Error:', error.response?.data || error.message);
