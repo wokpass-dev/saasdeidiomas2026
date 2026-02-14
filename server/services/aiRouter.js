@@ -26,30 +26,35 @@ const PERSONAS = {
 
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
     const langKey = language.toLowerCase().substring(0, 2);
-    const syllabus = SYLLABUS_FULL[langKey]?.[level] || SYLLABUS_FULL['en']['A1'];
     const languages = { en: "English", de: "German (Deutsch)", fr: "French (Français)", es: "Spanish" };
     const targetLang = languages[langKey] || "English";
 
     return `
-    **ROLE:** You are TalkMe, an Adaptive AI Language Partner.
-    **TARGET LANGUAGE:** ${targetLang}
-    **USER LEVEL:** ${level} (${syllabus.description})
-    **GOAL:** ${syllabus.goal}
-    **GRAMMAR FOCUS:** ${syllabus.grammar}
-    **VOCABULARY FOCUS:** ${syllabus.vocab}
-    **EXPECTED ERRORS:** ${syllabus.expected_errors.join(', ')}
-    **FEEDBACK PROTOCOL:** ${syllabus.feedback_protocol}
-    **INTERACTION STYLE:** ${syllabus.interaction_style}
+    ## 🎭 SYSTEM PROMPT: TALKME CORE ENGINE v1.0
 
-    **STRICT INSTRUCTIONS:**
-    1. Speak ONLY in ${targetLang} unless explaining a complex grammar point.
-    2. Adhere strictly to the INTERACTION STYLE (sentence length, tone).
-    3. Monitor for EXPECTED ERRORS and apply the FEEDBACK PROTOCOL.
-    4. Respond ONLY as a JSON object:
+    **CONTEXTO:** Actúa como **TalkMe**, un motor conversacional adaptativo experto en la adquisición de idiomas (${targetLang}) basado en el MCER. Tu objetivo NO es enseñar reglas, sino facilitar conversaciones donde el aprendizaje sea un subproducto natural.
+
+    ### 1. ALGORITMO DE DETECCIÓN INVISIBLE (L-SCAN)
+    Analiza el mensaje del usuario y ajusta tu salida para estar un **10% por encima** de su nivel detectado (${level}).
+
+    ### 2. PROTOCOLO DE FEEDBACK (SHADOW FEEDBACK)
+    * **Feedback Invisible/Selectivo/Estilístico:** Según el nivel detectado. No uses frases como "Lo correcto es...".
+    * Aplica eco lingüístico (repite la forma correcta orgánicamente).
+
+    ### 3. ESTRUCTURA DE RESPUESTA (REGLA DE LAS 3 CAPAS)
+    1. **Contenido (Empatía):** Responde humanamente a lo que el usuario dijo.
+    2. **Modelado (Andamiaje):** Introduce la forma correcta de manera orgánica.
+    3. **Semilla (Continuidad):** Termina SIEMPRE con una pregunta abierta.
+
+    ### 4. REGLAS ESPECÍFICAS
+    Mantén respuestas cortas (máximo 3-4 oraciones). No eres un profesor.
+
+    **STRICT JSON FORMAT:**
+    Respond ONLY with this JSON structure:
     {
         "message": "Your conversational response in ${targetLang}.",
-        "correction": "Explicit correction or null.",
-        "tip": "Grammar/Vocab tip in the user's native language or null."
+        "correction": "Optional organic correction feedback or null.",
+        "tip": "Short grammar/vocab hint in Spanish or null."
     }
     `;
 };
@@ -146,11 +151,11 @@ async function generateAudio(text) {
     // 1. INTENTO 1: Google Cloud Premium (Si ya habilitaste la API en la consola)
     if (GENAI_API_KEY) {
         try {
-            console.log(`🎙️ [aiRouter] Generando Voz Premium (Google Cloud)...`);
+            console.log(`🎙️ [aiRouter] Generando Voz Premium MASCULINA (Google Cloud)...`);
             const googleUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GENAI_API_KEY}`;
             const response = await axios.post(googleUrl, {
                 input: { text: text },
-                voice: { languageCode: "es-US", name: "es-US-Neural2-B" },
+                voice: { languageCode: "es-US", name: "es-US-Neural2-C" }, // C es definitivamente hombre
                 audioConfig: { audioEncoding: "MP3" }
             }, { timeout: 8000 });
 
@@ -159,13 +164,13 @@ async function generateAudio(text) {
                 return response.data.audioContent;
             }
         } catch (err) {
-            console.warn("⚠️ Google Cloud TTS no disponible. Saltando a Plan B (Translate)...");
+            console.warn("⚠️ Google Cloud TTS no disponible o falló.");
         }
     }
 
     // 2. INTENTO 2: Google Translate TTS (Plan B infalible y gratis)
     try {
-        console.log("🎙️ [aiRouter] Generando Voz con Google Translate (Plan B)...");
+        console.log("🎙️ [aiRouter] Generando Voz con Google Translate...");
         // Nota: google-tts-api devuelve una URL, luego descargamos el buffer
         const url = googleTTS.getAudioUrl(text, {
             lang: 'es',
@@ -177,16 +182,16 @@ async function generateAudio(text) {
         console.log("✅ [aiRouter] Voz generada con Google Translate.");
         return Buffer.from(audioResponse.data).toString('base64');
     } catch (err) {
-        console.warn("⚠️ [aiRouter] Falló Google Translate, intentando ElevenLabs como último recurso...");
+        console.warn("⚠️ [aiRouter] Falló Google Translate.");
     }
 
-    // 3. INTENTO 3: ElevenLabs (Plan C)
+    // 3. INTENTO 3: ElevenLabs (Plan C - MASCULINO: Josh)
     if (ELEVENLABS_API_KEY) {
         try {
-            console.log(`🎙️ [aiRouter] Intentando ElevenLabs...`);
+            console.log(`🎙️ [aiRouter] Intentando ElevenLabs (Voz: Josh)...`);
             const response = await axios({
                 method: 'post',
-                url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`,
+                url: `https://api.elevenlabs.io/v1/text-to-speech/TxPNqnSStVPId3Y9QHWH`, // Josh (Male)
                 data: { text: text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } },
                 headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json', 'accept': 'audio/mpeg' },
                 responseType: 'arraybuffer',
