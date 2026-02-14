@@ -1,28 +1,37 @@
 // aiRouter.js for TalkMe (CommonJS)
-// Orchestrates AI calls with priority: Gemini 2.0 Flash -> DeepSeek / ChatGPT (Fallback)
-// Also handles Text-to-Speech priority: Gemini Flash Audio -> ElevenLabs (Backup)
+// Orchestrates AI calls with priority: Gemini 2.0 Flash -> 1.5 Pro -> 1.0 Pro -> DeepSeek (Fallback)
+// Also handles Text-to-Speech priority: ElevenLabs
 
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 require('dotenv').config();
-const { SYLLABUS } = require('../data/syllabus');
 
-// --- Configuration ---
-const GENAI_API_KEY = (process.env.GEMINI_API_KEY || "").trim();
-const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
-const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || "").trim();
-const ELEVENLABS_API_KEY = (process.env.ELEVENLABS_API_KEY || "").trim();
+// --- Configuration & Key Cleaning ---
+const cleanKey = (key) => (key || "").trim().replace(/\s+/g, '');
 
-// Check mandatory key
-if (!GENAI_API_KEY) {
-    console.warn("⚠️ WARNING: GEMINI_API_KEY is missing. Gemini Fallback will not work.");
+const GENAI_API_KEY = cleanKey(process.env.GEMINI_API_KEY);
+const OPENAI_API_KEY = cleanKey(process.env.OPENAI_API_KEY);
+const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
+const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY);
+
+// Diagnostic logs
+console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs:");
+console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
+console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
+console.log(`- DeepSeek API Key: ${DEEPSEEK_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
+
+if (ELEVENLABS_API_KEY) {
+    console.log(`  Longitud ElevenLabs: ${ELEVENLABS_API_KEY.length}`);
+    console.log(`  Formato: ${ELEVENLABS_API_KEY.startsWith('sk_') ? '✅ sk_' : '❌ No empieza con sk_'}`);
 }
+
+const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
 // System Prompts & Personas
 const PERSONAS = {
     ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales.
     Tu objetivo es empatizar con los dolores del usuario al emigrar (burocracia, soledad, idioma, trabajo) y ofrecer soluciones sutilmente.
-    Hlas con un tono profesional pero cercano, empático y alentador.
+    Hablas con un tono profesional pero cercano, empático y alentador.
     
     Servicios clave de Puentes Globales que puedes mencionar si es relevante:
     1. Trámites de Visas y Ciudadanía.
@@ -34,21 +43,12 @@ const PERSONAS = {
     Responde en español latino neutro.`
 };
 
-const { SYLLABUS_FULL } = require('../data/syllabus_full');
-
-// ... (API Keys) - Assuming these are already defined in the file scope
-
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
-    // 1. Language Config
     const langKey = language.toLowerCase().substring(0, 2);
-    // Fallback to English and A1 if not found
     const syllabus = SYLLABUS_FULL[langKey]?.[level] || SYLLABUS_FULL['en']['A1'];
-
-    // Map to Full Language Name
     const languages = { en: "English", de: "German (Deutsch)", fr: "French (Français)", es: "Spanish" };
     const targetLang = languages[langKey] || "English";
 
-    // 2. Build the System Prompt from Syllabus Data
     return `
     **ROLE:** You are TalkMe, an Adaptive AI Language Partner (not just a tutor).
     **TARGET LANGUAGE:** ${targetLang}
@@ -70,9 +70,6 @@ const getTalkMePrompt = (language = 'en', level = 'A1') => {
     2. **Flow:** The error is part of the dialogue. Correct gently according to the protocol above. Do NOT stop to lecture.
     3. **Tone:** Supportive, patient, engaging.
     4. **Response Length:** Keep it conversational (1-3 sentences).
-    5. **Language Specifics:**
-       ${langKey === 'de' ? '- Ensure verb position (V2 rule) is correct in your examples.' : ''}
-       ${langKey === 'fr' ? '- Pay attention to gender agreement and pronoun usage.' : ''}
     
     **OUTPUT FORMAT (STRICT JSON):**
     You must output a valid JSON object. Do NOT wrap it in markdown code blocks.
@@ -81,36 +78,25 @@ const getTalkMePrompt = (language = 'en', level = 'A1') => {
         "correction": "String | null. If the user made a grammar error, fix it here briefly (in user's language or target language depending on level).",
         "tip": "String | null. A quick stylistic tip or vocabulary suggestion based on ${syllabus.feedback_protocol}."
     }
-
-    Start the conversation or respond to the user now.
     `;
 };
 
 // --- Main Text Generation Function ---
 async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATION', history = []) {
     let responseText = null;
+    let systemPrompt = PERSONAS[personaKeyOrPrompt] || personaKeyOrPrompt;
 
-    // Determine System Prompt
-    let systemPrompt = PERSONAS[personaKeyOrPrompt];
-    if (!systemPrompt) {
-        // Treat as raw prompt if not a known key
-        systemPrompt = personaKeyOrPrompt;
-    }
-
-    // 1. Try GEMINI 2.0 FLASH (Fastest & Free-tier generous)
+    // 1. Try GEMINI Cascade
     try {
-        if (GENAI_API_KEY) {
-            responseText = await callGeminiFlash(userMessage, systemPrompt, history);
-        }
+        responseText = await callGeminiFlash(userMessage, systemPrompt, history);
     } catch (error) {
-        console.error("❌ Gemini Flash Error:", error.message);
+        console.error("❌ Gemini Cascade Failed, attempting fallback to DeepSeek or OpenAI...");
     }
 
-    // 2. Fallback: DeepSeek (Cost effective) or ChatGPT (Reliable)
+    // 2. Fallback: DeepSeek or OpenAI
     if (!responseText) {
         console.log("⚠️ Falling back to Secondary AI Provider...");
         try {
-            // Try DeepSeek if key exists, otherwise OpenAI
             if (DEEPSEEK_API_KEY) {
                 responseText = await callDeepSeek(userMessage, systemPrompt, history);
             } else if (OPENAI_API_KEY) {
@@ -121,7 +107,7 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
         }
     }
 
-    return responseText || "Lo siento, estoy teniendo problemas de conexión. ¿Podrías repetirme eso?";
+    return responseText || "Lo siento, tuve un problema técnico. ¿Podrías repetirlo?";
 }
 
 // --- Specific AI Implementations ---
@@ -131,15 +117,16 @@ async function callGeminiFlash(message, systemPrompt, history) {
 
     try {
         const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
-        // Using gemini-1.5-flash-latest for best stability
+
+        // 1. PRIMARY: Gemini 1.5 Flash Latest
         let model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash-latest",
+            model: "models/gemini-1.5-flash-latest",
             systemInstruction: systemPrompt
         });
 
-        let chat;
         try {
-            chat = model.startChat({
+            console.log("🤖 [aiRouter] Intentando con Gemini 1.5 Flash...");
+            const chat = model.startChat({
                 history: formatHistoryForGemini(history),
                 generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
             });
@@ -147,30 +134,41 @@ async function callGeminiFlash(message, systemPrompt, history) {
             const response = await result.response;
             return response.text();
         } catch (m15Error) {
-            // Handle 404 or other errors by falling back to 1.5 Pro
-            if (m15Error.message.includes('404') || m15Error.message.includes('not found')) {
-                console.warn("⚠️ Gemini 1.5 Flash issue. Trying Gemini 1.5 Pro latest...");
-                const fallbackModel = genAI.getGenerativeModel({
-                    model: "gemini-1.5-pro-latest",
+            // Check for 404/Not Found specifically
+            if (m15Error.message.toLowerCase().includes('404') || m15Error.message.toLowerCase().includes('not found')) {
+                console.warn("⚠️ Gemini 1.5 Flash no disponible. Probando Gemini 1.5 Pro...");
+
+                const proModel = genAI.getGenerativeModel({
+                    model: "models/gemini-1.5-pro-latest",
                     systemInstruction: systemPrompt
                 });
 
-                const result = await fallbackModel.generateContent(message);
-                const response = await result.response;
-                return response.text();
+                try {
+                    const result = await proModel.generateContent(message);
+                    return result.response.text();
+                } catch (proError) {
+                    // FINAL Gemini Fallback: 1.0 Pro
+                    if (proError.message.includes('404')) {
+                        console.warn("⚠️ Gemini 1.5 Pro no disponible. Usando Gemini 1.0 Pro...");
+                        const oldModel = genAI.getGenerativeModel({
+                            model: "models/gemini-1.0-pro-latest"
+                        });
+                        const result = await oldModel.generateContent(systemPrompt + "\n\nUser: " + message);
+                        return result.response.text();
+                    }
+                    throw proError;
+                }
             }
             throw m15Error;
         }
     } catch (err) {
         console.error("❌ Gemini API Error:", err.message);
-        if (err.message.includes('422')) {
-            console.error("💡 Tip: Error 422 usually means invalid history format or unsupported parameters.");
-        }
-        throw err; // Allow fallback to trigger in generateResponse
+        throw err; // Trigger cascade to DeepSeek/OpenAI
     }
 }
 
 async function callOpenAI(message, systemPrompt, history) {
+    if (!OPENAI_API_KEY) return null;
     const messages = [
         { role: "system", content: systemPrompt },
         ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
@@ -178,9 +176,9 @@ async function callOpenAI(message, systemPrompt, history) {
     ];
 
     const res = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: "gpt-4o-mini", // Cost effective
+        model: "gpt-gpt-4o-mini",
         messages: messages,
-        max_tokens: 300
+        max_tokens: 500
     }, {
         headers: {
             'Content-Type': 'application/json',
@@ -191,84 +189,67 @@ async function callOpenAI(message, systemPrompt, history) {
     return res.data.choices[0].message.content;
 }
 
-async function callDeepSeek(message, systemPrompt, history) {
-    // DeepSeek API compatible with OpenAI
-    const res = await axios.post('https://api.deepseek.com/chat/completions', {
-        model: "deepseek-chat",
-        messages: [
-            { role: "system", content: systemPrompt },
-            ...history, // Check history format for Deepseek (should be array of objects)
-            { role: "user", content: message }
-        ]
-    }, {
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-        }
-    });
-    return res.data.choices[0].message.content;
+async function callDeepSeek(message, systemPrompt, history = []) {
+    if (!DEEPSEEK_API_KEY) return null;
+    try {
+        console.log("🤖 [aiRouter] Intentando con DeepSeek...");
+        const res = await axios.post('https://api.deepseek.com/v1/chat/completions', {
+            model: "deepseek-chat",
+            messages: [
+                { role: "system", content: systemPrompt },
+                ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
+                { role: "user", content: message }
+            ],
+            temperature: 0.7
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+            }
+        });
+        return res.data.choices[0].message.content;
+    } catch (err) {
+        console.error("❌ DeepSeek Error:", err.message);
+        return null;
+    }
 }
 
+// --- Helper Functions ---
 
-
-// --- Helper: Format History ---
-/**
- * Ensures history is valid for Gemini:
- * 1. Only 'user' and 'model' roles.
- * 2. Alternating roles (User -> Model -> User).
- * 3. Starts with 'user'.
- */
 function formatHistoryForGemini(history) {
     if (!history || !Array.isArray(history)) return [];
-
     let formatted = [];
     let lastRole = null;
-
     for (const msg of history) {
-        // Skip system messages (handled via systemInstruction)
         if (msg.role === 'system') continue;
-
         const role = msg.role === 'user' ? 'user' : 'model';
-
-        // Ensure alternating roles and no consecutive same roles
         if (role !== lastRole) {
-            formatted.push({
-                role: role,
-                parts: [{ text: msg.content || "" }]
-            });
+            formatted.push({ role: role, parts: [{ text: msg.content || "" }] });
             lastRole = role;
         }
     }
-
-    // Gemini history must start with 'user'
-    if (formatted.length > 0 && formatted[0].role !== 'user') {
-        formatted.shift();
-    }
-
+    if (formatted.length > 0 && formatted[0].role !== 'user') formatted.shift();
     return formatted;
 }
 
-/**
- * Cleans Markdown and special characters for TTS engines.
- */
 function cleanTextForTTS(text) {
     if (!text) return "";
     return text
-        .replace(/[*_~`#]/g, '') // Remove Markdown symbols
-        .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
-        .replace(/\[.*?\]\(.*?\)/g, '') // Remove links
-        .replace(/\{.*?\}/g, '') // Remove JSON blocks if accidentally leaked
-        .replace(/\s+/g, ' ') // Collapse whitespace
+        .replace(/[*_~`#]/g, '')
+        .replace(/!\[.*?\]\(.*?\)/g, '')
+        .replace(/\[.*?\]\(.*?\)/g, '')
+        .replace(/\{.*?\}/g, '')
+        .replace(/\s+/g, ' ')
         .trim();
 }
 
-
 // --- Audio Generation ---
 async function generateAudio(text, voiceId = "gemini_standard") {
-    // 1. Try Gemini Audio (Not implemented in this snippet, placeholder)
-    // 2. Fallback ElevenLabs
     if (ELEVENLABS_API_KEY) {
-        return await callElevenLabs(text);
+        const audioBuffer = await callElevenLabs(text);
+        if (audioBuffer) {
+            return Buffer.from(audioBuffer).toString('base64');
+        }
     }
     return null;
 }
@@ -276,8 +257,14 @@ async function generateAudio(text, voiceId = "gemini_standard") {
 async function callElevenLabs(text) {
     if (!ELEVENLABS_API_KEY) return null;
 
+    // Strict validation
+    if (!ELEVENLABS_API_KEY.startsWith('sk_')) {
+        console.error("❌ [aiRouter] API Key de ElevenLabs no tiene formato válido (debe empezar con 'sk_')");
+        return null;
+    }
+
     try {
-        console.log('🎙️ [aiRouter] Generating ElevenLabs Audio...');
+        console.log(`🎙️ [aiRouter] Usando ElevenLabs (key length: ${ELEVENLABS_API_KEY.length})`);
         const response = await axios({
             method: 'post',
             url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`, // Rachel
@@ -295,11 +282,18 @@ async function callElevenLabs(text) {
             timeout: 10000
         });
 
-        return Buffer.from(response.data).toString('base64');
+        console.log(`✅ [aiRouter] ElevenLabs Audio generado: ${response.data.length} bytes`);
+        return response.data;
     } catch (err) {
-        console.error('❌ [aiRouter] ElevenLabs Error:', err.message);
-        if (err.response && err.response.status === 401) {
-            console.error("🔑 Tip: Error 401 means your ElevenLabs API Key is invalid or not configured correctly in Render.");
+        if (err.response) {
+            const status = err.response.status;
+            const data = err.response.data?.toString() || 'No data';
+            console.error(`❌ [aiRouter] ElevenLabs Error ${status}:`, data);
+            if (status === 401) {
+                console.error("🔑 SOLUCIÓN: Revisa ElevenLabs API Key en Render (debe empezar con sk_)");
+            }
+        } else {
+            console.error('❌ [aiRouter] ElevenLabs Error:', err.message);
         }
         return null;
     }
