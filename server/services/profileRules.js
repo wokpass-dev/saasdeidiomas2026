@@ -14,7 +14,7 @@ const getPlanConfig = (profile) => {
             content: 'You are a helpful language tutor.'
         },
         limits: {
-            dailyMessages: 10, // Increased from 2 for "Magic" demo
+            dailyMessages: 1000, // Increased for testing/demo purposes
             features: ['chat', 'pronunciation']
         }
     };
