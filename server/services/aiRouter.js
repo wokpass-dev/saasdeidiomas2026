@@ -1,45 +1,33 @@
-// aiRouter.js for TalkMe (CommonJS)
-// Orchestrates AI calls with priority: Gemini 2.0 Flash -> 1.5 Pro -> 1.0 Pro -> DeepSeek (Fallback)
-// Also handles Text-to-Speech priority: ElevenLabs
+// aiRouter.js for TalkMe (CommonJS) - V3 Robust Architecture
+// Orchestrates AI calls with priority: Gemini 1.5 Flash -> 1.5 Pro -> 1.0 Pro -> DeepSeek -> OpenAI
+// Includes robust key cleaning, connection timeouts, and advanced error handling.
 
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 require('dotenv').config();
 
 // --- Configuration & Key Cleaning ---
-const cleanKey = (key) => (key || "").trim().replace(/\s+/g, '');
+const cleanKey = (k) => (k || "").trim().replace(/[\r\n\t]/g, '').replace(/\s/g, '');
 
 const GENAI_API_KEY = cleanKey(process.env.GEMINI_API_KEY);
 const OPENAI_API_KEY = cleanKey(process.env.OPENAI_API_KEY);
 const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
 const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY);
 
-// Diagnostic logs
+// --- Diagnostic Startup Log ---
 console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs:");
 console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
-console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
+console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ Presente' : '❌ Ausente'} (Length: ${ELEVENLABS_API_KEY.length})`);
 console.log(`- DeepSeek API Key: ${DEEPSEEK_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
-
-if (ELEVENLABS_API_KEY) {
-    console.log(`  Longitud ElevenLabs: ${ELEVENLABS_API_KEY.length}`);
-    console.log(`  Formato: ${ELEVENLABS_API_KEY.startsWith('sk_') ? '✅ sk_' : '❌ No empieza con sk_'}`);
-}
+console.log(`- OpenAI API Key: ${OPENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
 
 const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
 // System Prompts & Personas
 const PERSONAS = {
     ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales.
-    Tu objetivo es empatizar con los dolores del usuario al emigrar (burocracia, soledad, idioma, trabajo) y ofrecer soluciones sutilmente.
+    Tu objetivo es empatizar con los dolores del usuario al emigrar y ofrecer soluciones sutilmente.
     Hablas con un tono profesional pero cercano, empático y alentador.
-    
-    Servicios clave de Puentes Globales que puedes mencionar si es relevante:
-    1. Trámites de Visas y Ciudadanía.
-    2. Búsqueda de Empleo Internacional (Career Mastery).
-    3. Idiomas (TalkMe) para superar la barrera lingüística.
-    4. Comunidad y Soporte en destino.
-    
-    NO vendas agresivamente. Escucha primero, valida sus sentimientos, y luego sugiere cómo Puentes Globales puede aliviar ese dolor.
     Responde en español latino neutro.`
 };
 
@@ -55,28 +43,26 @@ const getTalkMePrompt = (language = 'en', level = 'A1') => {
     **USER LEVEL:** ${level} (${syllabus.description})
     **GOAL:** ${syllabus.goal}
     
-    **CONTEXTUAL SYLLABUS (ALLOWED CONTENT):**
+    **CONTEXTUAL SYLLABUS:**
     - **Grammar Focus:** ${syllabus.grammar}
     - **Vocabulary Topics:** ${syllabus.vocab}
     - **Key Skills:** ${syllabus.skills}
     
-    **INTERACTION PROTOCOL (STRICT):**
+    **INTERACTION PROTOCOL:**
     - **Style:** ${syllabus.interaction_style}
     - **Feedback Strategy:** ${syllabus.feedback_protocol}
-    - **Expected User Errors (Be vigilant):** ${syllabus.expected_errors ? syllabus.expected_errors.join(", ") : "General errors"}
 
     **BEHAVIOR RULES:**
-    1. **Adaptivity:** Speak STRICTLY at the user's level (${level}). Do NOT show off with complex vocabulary unless teaching it.
-    2. **Flow:** The error is part of the dialogue. Correct gently according to the protocol above. Do NOT stop to lecture.
-    3. **Tone:** Supportive, patient, engaging.
-    4. **Response Length:** Keep it conversational (1-3 sentences).
+    1. **Adaptivity:** Speak STRICTLY at the user's level (${level}).
+    2. **Tone:** Supportive, patient, engaging. No lecturing.
+    3. **Response Length:** Conversational (1-3 sentences).
     
     **OUTPUT FORMAT (STRICT JSON):**
-    You must output a valid JSON object. Do NOT wrap it in markdown code blocks.
+    Return ONLY a JSON object:
     {
-        "message": "String. The conversational response in ${targetLang}.",
-        "correction": "String | null. If the user made a grammar error, fix it here briefly (in user's language or target language depending on level).",
-        "tip": "String | null. A quick stylistic tip or vocabulary suggestion based on ${syllabus.feedback_protocol}."
+        "message": "Conversational response in ${targetLang}.",
+        "correction": "Brief grammar fix if needed.",
+        "tip": "Quick tip or vocab suggestion."
     }
     `;
 };
@@ -86,24 +72,30 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     let responseText = null;
     let systemPrompt = PERSONAS[personaKeyOrPrompt] || personaKeyOrPrompt;
 
-    // 1. Try GEMINI Cascade
+    // 1. Try GEMINI Cascade (Flash -> Pro -> 1.0 Pro)
     try {
-        responseText = await callGeminiFlash(userMessage, systemPrompt, history);
+        responseText = await callGemini(userMessage, systemPrompt, history);
     } catch (error) {
-        console.error("❌ Gemini Cascade Failed, attempting fallback to DeepSeek or OpenAI...");
+        console.warn("⚠️ [aiRouter] Gemini Cascade failed.");
     }
 
-    // 2. Fallback: DeepSeek or OpenAI
-    if (!responseText) {
-        console.log("⚠️ Falling back to Secondary AI Provider...");
+    // 2. Fallback: DeepSeek (Cost effective)
+    if (!responseText && DEEPSEEK_API_KEY) {
         try {
-            if (DEEPSEEK_API_KEY) {
-                responseText = await callDeepSeek(userMessage, systemPrompt, history);
-            } else if (OPENAI_API_KEY) {
-                responseText = await callOpenAI(userMessage, systemPrompt, history);
-            }
+            console.log("⚠️ [aiRouter] Falling back to DeepSeek...");
+            responseText = await callDeepSeek(userMessage, systemPrompt, history);
         } catch (error) {
-            console.error("❌ Secondary AI Error:", error.message);
+            console.warn("❌ [aiRouter] DeepSeek fallback failed.");
+        }
+    }
+
+    // 3. Fallback: OpenAI (Ultra Relay)
+    if (!responseText && OPENAI_API_KEY) {
+        try {
+            console.log("⚠️ [aiRouter] Falling back to OpenAI...");
+            responseText = await callOpenAI(userMessage, systemPrompt, history);
+        } catch (error) {
+            console.warn("❌ [aiRouter] OpenAI fallback failed.");
         }
     }
 
@@ -112,88 +104,72 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 
 // --- Specific AI Implementations ---
 
-async function callGeminiFlash(message, systemPrompt, history) {
+async function callGemini(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
+    const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
 
-    try {
-        const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
+    // Try variations to account for different SDK versions and deployments
+    const modelVariations = [
+        "gemini-1.5-flash-latest",
+        "models/gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest",
+        "models/gemini-1.5-pro-latest",
+        "gemini-1.0-pro-latest"
+    ];
 
-        // 1. PRIMARY: Gemini 1.5 Flash Latest
-        let model = genAI.getGenerativeModel({
-            model: "models/gemini-1.5-flash-latest",
-            systemInstruction: systemPrompt
-        });
-
+    for (const modelName of modelVariations) {
         try {
-            console.log("🤖 [aiRouter] Intentando con Gemini 1.5 Flash...");
-            const chat = model.startChat({
-                history: formatHistoryForGemini(history),
-                generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
+            console.log(`🤖 [aiRouter] Intentando con ${modelName}...`);
+
+            // CORRECT: systemInstruction must be in getGenerativeModel for Gemini 1.5
+            const model = genAI.getGenerativeModel({
+                model: modelName,
+                ...(modelName.includes("1.5") && { systemInstruction: systemPrompt })
             });
-            const result = await chat.sendMessage(message);
-            const response = await result.response;
-            return response.text();
-        } catch (m15Error) {
-            // Check for 404/Not Found specifically
-            if (m15Error.message.toLowerCase().includes('404') || m15Error.message.toLowerCase().includes('not found')) {
-                console.warn("⚠️ Gemini 1.5 Flash no disponible. Probando Gemini 1.5 Pro...");
 
-                const proModel = genAI.getGenerativeModel({
-                    model: "models/gemini-1.5-pro-latest",
-                    systemInstruction: systemPrompt
+            if (modelName.includes("1.5")) {
+                const chat = model.startChat({
+                    history: formatHistoryForGemini(history),
+                    generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
                 });
-
-                try {
-                    const result = await proModel.generateContent(message);
-                    return result.response.text();
-                } catch (proError) {
-                    // FINAL Gemini Fallback: 1.0 Pro
-                    if (proError.message.includes('404')) {
-                        console.warn("⚠️ Gemini 1.5 Pro no disponible. Usando Gemini 1.0 Pro...");
-                        const oldModel = genAI.getGenerativeModel({
-                            model: "models/gemini-1.0-pro-latest"
-                        });
-                        const result = await oldModel.generateContent(systemPrompt + "\n\nUser: " + message);
-                        return result.response.text();
-                    }
-                    throw proError;
-                }
+                const result = await chat.sendMessage(message);
+                const response = await result.response;
+                return response.text();
+            } else {
+                // For 1.0 models, prepend prompt
+                const result = await model.generateContent(systemPrompt + "\n\nUser: " + message);
+                const response = await result.response;
+                return response.text();
             }
-            throw m15Error;
+        } catch (err) {
+            console.warn(`❌ [aiRouter] Modelo ${modelName} falló: ${err.message.substring(0, 70)}...`);
+            continue; // Next variation
         }
-    } catch (err) {
-        console.error("❌ Gemini API Error:", err.message);
-        throw err; // Trigger cascade to DeepSeek/OpenAI
     }
+    return null;
 }
 
 async function callOpenAI(message, systemPrompt, history) {
     if (!OPENAI_API_KEY) return null;
-    const messages = [
-        { role: "system", content: systemPrompt },
-        ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
-        { role: "user", content: message }
-    ];
-
     const res = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: "gpt-gpt-4o-mini",
-        messages: messages,
+        model: "gpt-4o-mini",
+        messages: [
+            { role: "system", content: systemPrompt },
+            ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
+            { role: "user", content: message }
+        ],
         max_tokens: 500
     }, {
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${OPENAI_API_KEY}`
-        }
+        headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+        timeout: 15000
     });
-
     return res.data.choices[0].message.content;
 }
 
-async function callDeepSeek(message, systemPrompt, history = []) {
+async function callDeepSeek(message, systemPrompt, history) {
     if (!DEEPSEEK_API_KEY) return null;
     try {
-        console.log("🤖 [aiRouter] Intentando con DeepSeek...");
-        const res = await axios.post('https://api.deepseek.com/v1/chat/completions', {
+        const res = await axios.post('https://api.deepseek.com/chat/completions', { // Fixed endpoint for DeepSeek Chat
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
@@ -202,14 +178,51 @@ async function callDeepSeek(message, systemPrompt, history = []) {
             ],
             temperature: 0.7
         }, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-            }
+            headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
+            timeout: 15000
         });
         return res.data.choices[0].message.content;
     } catch (err) {
-        console.error("❌ DeepSeek Error:", err.message);
+        console.error("❌ [aiRouter] DeepSeek Error:", err.message);
+        return null;
+    }
+}
+
+// --- Audio Generation (ElevenLabs) ---
+
+async function generateAudio(text) {
+    if (!ELEVENLABS_API_KEY) return null;
+
+    try {
+        console.log(`🎙️ [aiRouter] ElevenLabs - Generando audio (${text.length} chars)`);
+        const response = await axios({
+            method: 'post',
+            url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`, // Rachel
+            data: {
+                text: text,
+                model_id: "eleven_multilingual_v2",
+                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+            },
+            headers: {
+                'accept': 'audio/mpeg',
+                'xi-api-key': ELEVENLABS_API_KEY,
+                'Content-Type': 'application/json',
+            },
+            responseType: 'arraybuffer',
+            timeout: 15000
+        });
+
+        console.log(`✅ [aiRouter] ElevenLabs éxitoso: ${response.data.length} bytes`);
+        return Buffer.from(response.data).toString('base64');
+    } catch (err) {
+        let errorData = err.message;
+        if (err.response && err.response.data) {
+            errorData = Buffer.from(err.response.data).toString();
+        }
+        console.error(`❌ [aiRouter] ElevenLabs Error:`, errorData);
+        if (err.response && err.response.status === 401) {
+            console.error("🔑 SOLUCIÓN: La API Key es inválida en Render. Regenera en elevenlabs.io.");
+        }
         return null;
     }
 }
@@ -234,69 +247,7 @@ function formatHistoryForGemini(history) {
 
 function cleanTextForTTS(text) {
     if (!text) return "";
-    return text
-        .replace(/[*_~`#]/g, '')
-        .replace(/!\[.*?\]\(.*?\)/g, '')
-        .replace(/\[.*?\]\(.*?\)/g, '')
-        .replace(/\{.*?\}/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-// --- Audio Generation ---
-async function generateAudio(text, voiceId = "gemini_standard") {
-    if (ELEVENLABS_API_KEY) {
-        const audioBuffer = await callElevenLabs(text);
-        if (audioBuffer) {
-            return Buffer.from(audioBuffer).toString('base64');
-        }
-    }
-    return null;
-}
-
-async function callElevenLabs(text) {
-    if (!ELEVENLABS_API_KEY) return null;
-
-    // Strict validation
-    if (!ELEVENLABS_API_KEY.startsWith('sk_')) {
-        console.error("❌ [aiRouter] API Key de ElevenLabs no tiene formato válido (debe empezar con 'sk_')");
-        return null;
-    }
-
-    try {
-        console.log(`🎙️ [aiRouter] Usando ElevenLabs (key length: ${ELEVENLABS_API_KEY.length})`);
-        const response = await axios({
-            method: 'post',
-            url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`, // Rachel
-            data: {
-                text: text,
-                model_id: "eleven_multilingual_v2",
-                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-            },
-            headers: {
-                'accept': 'audio/mpeg',
-                'xi-api-key': ELEVENLABS_API_KEY,
-                'Content-Type': 'application/json',
-            },
-            responseType: 'arraybuffer',
-            timeout: 10000
-        });
-
-        console.log(`✅ [aiRouter] ElevenLabs Audio generado: ${response.data.length} bytes`);
-        return response.data;
-    } catch (err) {
-        if (err.response) {
-            const status = err.response.status;
-            const data = err.response.data?.toString() || 'No data';
-            console.error(`❌ [aiRouter] ElevenLabs Error ${status}:`, data);
-            if (status === 401) {
-                console.error("🔑 SOLUCIÓN: Revisa ElevenLabs API Key en Render (debe empezar con sk_)");
-            }
-        } else {
-            console.error('❌ [aiRouter] ElevenLabs Error:', err.message);
-        }
-        return null;
-    }
+    return text.replace(/[*_~`#]/g, '').replace(/!\[.*?\]\(.*?\)/g, '').replace(/\[.*?\]\(.*?\)/g, '').replace(/\{.*?\}/g, '').replace(/\s+/g, ' ').trim();
 }
 
 module.exports = { generateResponse, generateAudio, getTalkMePrompt, PERSONAS, cleanTextForTTS };
