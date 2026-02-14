@@ -1,34 +1,28 @@
-// aiRouter.js for TalkMe (CommonJS) - V3 Robust Architecture
-// Orchestrates AI calls with priority: Gemini 1.5 Flash -> 1.5 Pro -> 1.0 Pro -> DeepSeek -> OpenAI
-// Includes robust key cleaning, connection timeouts, and advanced error handling.
-
+// aiRouter.js for TalkMe (CommonJS) - V3.2 FINAL
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 require('dotenv').config();
 
-// --- Configuration & Key Cleaning ---
+// --- Robust Key Cleaning ---
 const cleanKey = (k) => (k || "").trim().replace(/[\r\n\t]/g, '').replace(/\s/g, '');
 
 const GENAI_API_KEY = cleanKey(process.env.GEMINI_API_KEY);
 const OPENAI_API_KEY = cleanKey(process.env.OPENAI_API_KEY);
 const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
-const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY);
+const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLAB_API_KEY || process.env.ELEVENLABS_API_KEY);
 
 // --- Diagnostic Startup Log ---
 console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs:");
-console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
-console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ Presente' : '❌ Ausente'} (Length: ${ELEVENLABS_API_KEY.length})`);
+console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ ' + GENAI_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
+console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ ' + ELEVENLABS_API_KEY.substring(0, 8) + '...' : '❌ Ausente'} (Length: ${ELEVENLABS_API_KEY.length})`);
 console.log(`- DeepSeek API Key: ${DEEPSEEK_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
 console.log(`- OpenAI API Key: ${OPENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
 
 const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
-// System Prompts & Personas
 const PERSONAS = {
-    ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales.
-    Tu objetivo es empatizar con los dolores del usuario al emigrar y ofrecer soluciones sutilmente.
-    Hablas con un tono profesional pero cercano, empático y alentador.
-    Responde en español latino neutro.`
+    ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales. 
+    Responde siempre en español latino neutro, de forma empática y profesional.`
 };
 
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
@@ -38,7 +32,7 @@ const getTalkMePrompt = (language = 'en', level = 'A1') => {
     const targetLang = languages[langKey] || "English";
 
     return `
-    **ROLE:** You are TalkMe, an Adaptive AI Language Partner (not just a tutor).
+    **ROLE:** You are TalkMe, an Adaptive AI Language Partner.
     **TARGET LANGUAGE:** ${targetLang}
     **USER LEVEL:** ${level} (${syllabus.description})
     **GOAL:** ${syllabus.goal}
@@ -46,19 +40,8 @@ const getTalkMePrompt = (language = 'en', level = 'A1') => {
     **CONTEXTUAL SYLLABUS:**
     - **Grammar Focus:** ${syllabus.grammar}
     - **Vocabulary Topics:** ${syllabus.vocab}
-    - **Key Skills:** ${syllabus.skills}
-    
-    **INTERACTION PROTOCOL:**
-    - **Style:** ${syllabus.interaction_style}
-    - **Feedback Strategy:** ${syllabus.feedback_protocol}
-
-    **BEHAVIOR RULES:**
-    1. **Adaptivity:** Speak STRICTLY at the user's level (${level}).
-    2. **Tone:** Supportive, patient, engaging. No lecturing.
-    3. **Response Length:** Conversational (1-3 sentences).
     
     **OUTPUT FORMAT (STRICT JSON):**
-    Return ONLY a JSON object:
     {
         "message": "Conversational response in ${targetLang}.",
         "correction": "Brief grammar fix if needed.",
@@ -67,61 +50,42 @@ const getTalkMePrompt = (language = 'en', level = 'A1') => {
     `;
 };
 
-// --- Main Text Generation Function ---
 async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATION', history = []) {
     let responseText = null;
     let systemPrompt = PERSONAS[personaKeyOrPrompt] || personaKeyOrPrompt;
 
-    // 1. Try GEMINI Cascade (Flash -> Pro -> 1.0 Pro)
+    // 1. Gemini Cascade
     try {
         responseText = await callGemini(userMessage, systemPrompt, history);
     } catch (error) {
-        console.warn("⚠️ [aiRouter] Gemini Cascade failed.");
+        console.warn("⚠️ [aiRouter] Gemini failed.");
     }
 
-    // 2. Fallback: DeepSeek (Cost effective)
-    if (!responseText && DEEPSEEK_API_KEY) {
-        try {
-            console.log("⚠️ [aiRouter] Falling back to DeepSeek...");
-            responseText = await callDeepSeek(userMessage, systemPrompt, history);
-        } catch (error) {
-            console.warn("❌ [aiRouter] DeepSeek fallback failed.");
-        }
-    }
-
-    // 3. Fallback: OpenAI (Ultra Relay)
-    if (!responseText && OPENAI_API_KEY) {
-        try {
-            console.log("⚠️ [aiRouter] Falling back to OpenAI...");
-            responseText = await callOpenAI(userMessage, systemPrompt, history);
-        } catch (error) {
-            console.warn("❌ [aiRouter] OpenAI fallback failed.");
-        }
+    // 2. Fallbacks
+    if (!responseText) {
+        console.log("⚠️ [aiRouter] Trying fallbacks...");
+        if (DEEPSEEK_API_KEY) responseText = await callDeepSeek(userMessage, systemPrompt, history);
+        if (!responseText && OPENAI_API_KEY) responseText = await callOpenAI(userMessage, systemPrompt, history);
     }
 
     return responseText || "Lo siento, tuve un problema técnico. ¿Podrías repetirlo?";
 }
 
-// --- Specific AI Implementations ---
-
 async function callGemini(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
     const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
 
-    // Try variations to account for different SDK versions and deployments
+    // Some regions/keys require 'models/' prefix, some don't. We try both.
     const modelVariations = [
-        "gemini-1.5-flash-latest",
-        "models/gemini-1.5-flash-latest",
-        "gemini-1.5-pro-latest",
-        "models/gemini-1.5-pro-latest",
-        "gemini-1.0-pro-latest"
+        "gemini-1.5-flash",
+        "models/gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "models/gemini-1.0-pro"
     ];
 
     for (const modelName of modelVariations) {
         try {
             console.log(`🤖 [aiRouter] Intentando con ${modelName}...`);
-
-            // CORRECT: systemInstruction must be in getGenerativeModel for Gemini 1.5
             const model = genAI.getGenerativeModel({
                 model: modelName,
                 ...(modelName.includes("1.5") && { systemInstruction: systemPrompt })
@@ -133,17 +97,14 @@ async function callGemini(message, systemPrompt, history) {
                     generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
                 });
                 const result = await chat.sendMessage(message);
-                const response = await result.response;
-                return response.text();
+                return result.response.text();
             } else {
-                // For 1.0 models, prepend prompt
                 const result = await model.generateContent(systemPrompt + "\n\nUser: " + message);
-                const response = await result.response;
-                return response.text();
+                return result.response.text();
             }
         } catch (err) {
-            console.warn(`❌ [aiRouter] Modelo ${modelName} falló: ${err.message.substring(0, 70)}...`);
-            continue; // Next variation
+            console.warn(`❌ [aiRouter] ${modelName} falló: ${err.message.substring(0, 100)}`);
+            continue;
         }
     }
     return null;
@@ -151,83 +112,52 @@ async function callGemini(message, systemPrompt, history) {
 
 async function callOpenAI(message, systemPrompt, history) {
     if (!OPENAI_API_KEY) return null;
-    const res = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: "gpt-4o-mini",
-        messages: [
-            { role: "system", content: systemPrompt },
-            ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
-            { role: "user", content: message }
-        ],
-        max_tokens: 500
-    }, {
-        headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-        timeout: 15000
-    });
-    return res.data.choices[0].message.content;
+    try {
+        const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+            model: "gpt-4o-mini",
+            messages: [{ role: "system", content: systemPrompt }, ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })), { role: "user", content: message }]
+        }, {
+            headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+            timeout: 10000
+        });
+        return res.data.choices[0].message.content;
+    } catch (e) { return null; }
 }
 
 async function callDeepSeek(message, systemPrompt, history) {
     if (!DEEPSEEK_API_KEY) return null;
     try {
-        const res = await axios.post('https://api.deepseek.com/chat/completions', { // Fixed endpoint for DeepSeek Chat
+        const res = await axios.post('https://api.deepseek.com/chat/completions', {
             model: "deepseek-chat",
-            messages: [
-                { role: "system", content: systemPrompt },
-                ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
-                { role: "user", content: message }
-            ],
-            temperature: 0.7
+            messages: [{ role: "system", content: systemPrompt }, ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })), { role: "user", content: message }]
         }, {
             headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
-            timeout: 15000
+            timeout: 10000
         });
         return res.data.choices[0].message.content;
-    } catch (err) {
-        console.error("❌ [aiRouter] DeepSeek Error:", err.message);
-        return null;
-    }
+    } catch (e) { return null; }
 }
-
-// --- Audio Generation (ElevenLabs) ---
 
 async function generateAudio(text) {
     if (!ELEVENLABS_API_KEY) return null;
 
     try {
-        console.log(`🎙️ [aiRouter] ElevenLabs - Generando audio (${text.length} chars)`);
+        console.log(`🎙️ [aiRouter] ElevenLabs enviando request (${text.length} chars)`);
         const response = await axios({
             method: 'post',
-            url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`, // Rachel
-            data: {
-                text: text,
-                model_id: "eleven_multilingual_v2",
-                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-            },
-            headers: {
-                'accept': 'audio/mpeg',
-                'xi-api-key': ELEVENLABS_API_KEY,
-                'Content-Type': 'application/json',
-            },
+            url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`,
+            data: { text: text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } },
+            headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json', 'accept': 'audio/mpeg' },
             responseType: 'arraybuffer',
             timeout: 15000
         });
-
-        console.log(`✅ [aiRouter] ElevenLabs éxitoso: ${response.data.length} bytes`);
         return Buffer.from(response.data).toString('base64');
     } catch (err) {
-        let errorData = err.message;
-        if (err.response && err.response.data) {
-            errorData = Buffer.from(err.response.data).toString();
-        }
-        console.error(`❌ [aiRouter] ElevenLabs Error:`, errorData);
-        if (err.response && err.response.status === 401) {
-            console.error("🔑 SOLUCIÓN: La API Key es inválida en Render. Regenera en elevenlabs.io.");
-        }
+        const detail = err.response ? Buffer.from(err.response.data || "").toString() : err.message;
+        console.error(`❌ [aiRouter] ElevenLabs Error:`, detail);
         return null;
     }
 }
-
-// --- Helper Functions ---
 
 function formatHistoryForGemini(history) {
     if (!history || !Array.isArray(history)) return [];
