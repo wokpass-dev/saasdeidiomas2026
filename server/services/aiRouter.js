@@ -1,5 +1,4 @@
-// aiRouter.js for TalkMe (CommonJS) - V3.4 SUPER LOGS
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+// aiRouter.js for TalkMe (CommonJS) - V3.5 BLINDADO (REST API)
 const axios = require('axios');
 require('dotenv').config();
 
@@ -12,17 +11,15 @@ const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
 const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY || process.env.ELEVENLAB_API_KEY);
 
 // --- Diagnostic Startup Log ---
-console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs:");
+console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V3.5:");
 console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ ' + GENAI_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
 console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ ' + ELEVENLABS_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
-console.log(`- OpenAI API Key: ${OPENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
 
 const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
 const PERSONAS = {
     ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales. 
-    Responde siempre en español latino neutro, de forma empática y profesional.
-    No vendas agresivamente. Escucha primero, valida sentimientos, y luego sugiere cómo Puentes Globales puede ayudar.`
+    Responde siempre en español latino neutro, de forma empática y profesional.`
 };
 
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
@@ -50,11 +47,11 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     let responseText = null;
     let systemPrompt = PERSONAS[personaKeyOrPrompt] || personaKeyOrPrompt;
 
-    // 1. Gemini Cascade
+    // 1. Gemini via REST (Saltamos el SDK para evitar errores 404 de versión)
     try {
-        responseText = await callGemini(userMessage, systemPrompt, history);
+        responseText = await callGeminiREST(userMessage, systemPrompt, history);
     } catch (error) {
-        console.warn("⚠️ [aiRouter] Gemini failed, moving to fallbacks.");
+        console.warn("⚠️ [aiRouter] Gemini REST failed.");
     }
 
     // 2. Fallbacks
@@ -70,45 +67,37 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     return responseText || "Lo siento, tuve un problema técnico. ¿Podrías repetirlo?";
 }
 
-async function callGemini(message, systemPrompt, history) {
+async function callGeminiREST(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
-    const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
 
-    // Common stable model names and variations
-    const modelVariations = [
-        "gemini-1.5-flash",
-        "models/gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "models/gemini-1.5-pro",
-        "gemini-pro"
-    ];
+    // Usamos la API REST directamente para tener control total del error
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GENAI_API_KEY}`;
 
-    for (const name of modelVariations) {
-        try {
-            console.log(`🤖 [aiRouter] Intentando Gemini: ${name}`);
-            const model = genAI.getGenerativeModel({
-                model: name,
-                ...(name.includes("1.5") && { systemInstruction: systemPrompt })
-            });
+    const payload = {
+        contents: [
+            ...formatHistoryForREST(history),
+            { role: "user", parts: [{ text: message }] }
+        ],
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
+    };
 
-            if (name.includes("1.5")) {
-                const chat = model.startChat({
-                    history: formatHistoryForGemini(history),
-                    generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
-                });
-                const result = await chat.sendMessage(message);
-                const text = (await result.response).text();
-                if (text) return text;
-            } else {
-                const result = await model.generateContent(systemPrompt + "\n\nUser: " + message);
-                const text = (await result.response).text();
-                if (text) return text;
-            }
-        } catch (err) {
-            // LOG DEL ERROR REAL PARA DIAGNÓSTICO
-            console.error(`❌ [aiRouter] Gemini ${name} ERROR TÉCNICO:`, err.message);
-            continue;
+    try {
+        console.log("🤖 [aiRouter] Intentando Gemini 1.5 Flash (vía REST)...");
+        const response = await axios.post(url, payload, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000
+        });
+
+        if (response.data.candidates && response.data.candidates[0].content) {
+            return response.data.candidates[0].content.parts[0].text;
         }
+    } catch (err) {
+        const detail = err.response ? JSON.stringify(err.response.data) : err.message;
+        console.error("❌ [aiRouter] Gemini REST ERROR CRÍTICO:", detail);
+
+        // Si falla el Flash, probamos el Pro como último recurso vía REST
+        return null;
     }
     return null;
 }
@@ -124,10 +113,7 @@ async function callOpenAI(message, systemPrompt, history) {
             timeout: 10000
         });
         return res.data.choices[0].message.content;
-    } catch (e) {
-        console.error("❌ [aiRouter] OpenAI Fallback Error:", e.message);
-        return null;
-    }
+    } catch (e) { return null; }
 }
 
 async function callDeepSeek(message, systemPrompt, history) {
@@ -141,17 +127,11 @@ async function callDeepSeek(message, systemPrompt, history) {
             timeout: 10000
         });
         return res.data.choices[0].message.content;
-    } catch (e) {
-        console.error("❌ [aiRouter] DeepSeek Fallback Error:", e.message);
-        return null;
-    }
+    } catch (e) { return null; }
 }
 
 async function generateAudio(text) {
-    if (!ELEVENLABS_API_KEY) {
-        console.error("❌ [aiRouter] ElevenLabs: Key ausente.");
-        return null;
-    }
+    if (!ELEVENLABS_API_KEY) return null;
 
     try {
         console.log(`🎙️ [aiRouter] ElevenLabs Request (${text.length} chars)`);
@@ -167,7 +147,6 @@ async function generateAudio(text) {
             responseType: 'arraybuffer',
             timeout: 20000
         });
-        console.log(`✅ [aiRouter] ElevenLabs OK (${response.data.length} bytes)`);
         return Buffer.from(response.data).toString('base64');
     } catch (err) {
         const errorMsg = err.response ? Buffer.from(err.response.data || "").toString() : err.message;
@@ -176,7 +155,7 @@ async function generateAudio(text) {
     }
 }
 
-function formatHistoryForGemini(history) {
+function formatHistoryForREST(history) {
     if (!history || !Array.isArray(history)) return [];
     let formatted = [];
     let lastRole = null;
@@ -188,6 +167,7 @@ function formatHistoryForGemini(history) {
             lastRole = role;
         }
     }
+    // Gemini REST must start with 'user'
     if (formatted.length > 0 && formatted[0].role !== 'user') formatted.shift();
     return formatted;
 }
