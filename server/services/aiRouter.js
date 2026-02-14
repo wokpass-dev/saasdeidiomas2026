@@ -1,4 +1,4 @@
-// aiRouter.js for TalkMe (CommonJS) - V3.2 FINAL
+// aiRouter.js for TalkMe (CommonJS) - V3.3 FINAL REPAIR
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 require('dotenv').config();
@@ -9,20 +9,20 @@ const cleanKey = (k) => (k || "").trim().replace(/[\r\n\t]/g, '').replace(/\s/g,
 const GENAI_API_KEY = cleanKey(process.env.GEMINI_API_KEY);
 const OPENAI_API_KEY = cleanKey(process.env.OPENAI_API_KEY);
 const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
-const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLAB_API_KEY || process.env.ELEVENLABS_API_KEY);
+const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY || process.env.ELEVENLAB_API_KEY);
 
 // --- Diagnostic Startup Log ---
 console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs:");
 console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ ' + GENAI_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
-console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ ' + ELEVENLABS_API_KEY.substring(0, 8) + '...' : '❌ Ausente'} (Length: ${ELEVENLABS_API_KEY.length})`);
-console.log(`- DeepSeek API Key: ${DEEPSEEK_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
+console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ ' + ELEVENLABS_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
 console.log(`- OpenAI API Key: ${OPENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
 
 const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
 const PERSONAS = {
     ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales. 
-    Responde siempre en español latino neutro, de forma empática y profesional.`
+    Responde siempre en español latino neutro, de forma empática y profesional.
+    No vendas agresivamente. Escucha primero, valida sentimientos, y luego sugiere cómo Puentes Globales puede ayudar.`
 };
 
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
@@ -35,13 +35,9 @@ const getTalkMePrompt = (language = 'en', level = 'A1') => {
     **ROLE:** You are TalkMe, an Adaptive AI Language Partner.
     **TARGET LANGUAGE:** ${targetLang}
     **USER LEVEL:** ${level} (${syllabus.description})
-    **GOAL:** ${syllabus.goal}
-    
-    **CONTEXTUAL SYLLABUS:**
-    - **Grammar Focus:** ${syllabus.grammar}
-    - **Vocabulary Topics:** ${syllabus.vocab}
     
     **OUTPUT FORMAT (STRICT JSON):**
+    Return ONLY a JSON object:
     {
         "message": "Conversational response in ${targetLang}.",
         "correction": "Brief grammar fix if needed.",
@@ -58,14 +54,17 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     try {
         responseText = await callGemini(userMessage, systemPrompt, history);
     } catch (error) {
-        console.warn("⚠️ [aiRouter] Gemini failed.");
+        console.warn("⚠️ [aiRouter] Gemini failed, moving to fallbacks.");
     }
 
     // 2. Fallbacks
     if (!responseText) {
-        console.log("⚠️ [aiRouter] Trying fallbacks...");
-        if (DEEPSEEK_API_KEY) responseText = await callDeepSeek(userMessage, systemPrompt, history);
-        if (!responseText && OPENAI_API_KEY) responseText = await callOpenAI(userMessage, systemPrompt, history);
+        if (DEEPSEEK_API_KEY) {
+            try { responseText = await callDeepSeek(userMessage, systemPrompt, history); } catch (e) { }
+        }
+        if (!responseText && OPENAI_API_KEY) {
+            try { responseText = await callOpenAI(userMessage, systemPrompt, history); } catch (e) { }
+        }
     }
 
     return responseText || "Lo siento, tuve un problema técnico. ¿Podrías repetirlo?";
@@ -75,35 +74,30 @@ async function callGemini(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
     const genAI = new GoogleGenerativeAI(GENAI_API_KEY);
 
-    // Some regions/keys require 'models/' prefix, some don't. We try both.
-    const modelVariations = [
-        "gemini-1.5-flash",
-        "models/gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "models/gemini-1.0-pro"
-    ];
+    // Common stable model names
+    const modelNames = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
 
-    for (const modelName of modelVariations) {
+    for (const name of modelNames) {
         try {
-            console.log(`🤖 [aiRouter] Intentando con ${modelName}...`);
+            console.log(`🤖 [aiRouter] Intentando Gemini: ${name}`);
             const model = genAI.getGenerativeModel({
-                model: modelName,
-                ...(modelName.includes("1.5") && { systemInstruction: systemPrompt })
+                model: name,
+                ...(name.includes("1.5") && { systemInstruction: systemPrompt })
             });
 
-            if (modelName.includes("1.5")) {
+            if (name.includes("1.5")) {
                 const chat = model.startChat({
                     history: formatHistoryForGemini(history),
                     generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
                 });
                 const result = await chat.sendMessage(message);
-                return result.response.text();
+                return (await result.response).text();
             } else {
                 const result = await model.generateContent(systemPrompt + "\n\nUser: " + message);
-                return result.response.text();
+                return (await result.response).text();
             }
         } catch (err) {
-            console.warn(`❌ [aiRouter] ${modelName} falló: ${err.message.substring(0, 100)}`);
+            console.warn(`❌ [aiRouter] Gemini ${name} falló.`);
             continue;
         }
     }
@@ -139,22 +133,30 @@ async function callDeepSeek(message, systemPrompt, history) {
 }
 
 async function generateAudio(text) {
-    if (!ELEVENLABS_API_KEY) return null;
+    if (!ELEVENLABS_API_KEY) {
+        console.error("❌ [aiRouter] ElevenLabs: Key ausente.");
+        return null;
+    }
 
     try {
-        console.log(`🎙️ [aiRouter] ElevenLabs enviando request (${text.length} chars)`);
+        console.log(`🎙️ [aiRouter] ElevenLabs Request (${text.length} chars)`);
         const response = await axios({
             method: 'post',
             url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`,
             data: { text: text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } },
-            headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json', 'accept': 'audio/mpeg' },
+            headers: {
+                'xi-api-key': ELEVENLABS_API_KEY,
+                'Content-Type': 'application/json',
+                'accept': 'audio/mpeg'
+            },
             responseType: 'arraybuffer',
-            timeout: 15000
+            timeout: 20000
         });
+        console.log(`✅ [aiRouter] ElevenLabs OK (${response.data.length} bytes)`);
         return Buffer.from(response.data).toString('base64');
     } catch (err) {
-        const detail = err.response ? Buffer.from(err.response.data || "").toString() : err.message;
-        console.error(`❌ [aiRouter] ElevenLabs Error:`, detail);
+        const errorMsg = err.response ? Buffer.from(err.response.data || "").toString() : err.message;
+        console.error(`❌ [aiRouter] ElevenLabs Error:`, errorMsg);
         return null;
     }
 }
