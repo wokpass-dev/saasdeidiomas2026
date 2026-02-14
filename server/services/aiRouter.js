@@ -1,4 +1,4 @@
-// aiRouter.js for TalkMe (CommonJS) - V4.0 THE BULLETPROOF
+// aiRouter.js for TalkMe (CommonJS) - V4.2 MULTI-VOICE & STABLE GEMINI
 const axios = require('axios');
 require('dotenv').config();
 
@@ -11,21 +11,24 @@ const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
 const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY || process.env.ELEVENLAB_API_KEY);
 
 // --- Diagnostic Startup Log ---
-console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V4.0:");
+console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V4.2:");
 console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ ' + GENAI_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
+console.log(`- Google Voice (via Gemini Key): ${GENAI_API_KEY ? '✅ Disponible' : '❌ Requiere Key'}`);
 console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
 
 const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
 const PERSONAS = {
     ALEX_MIGRATION: `Eres Alex, un asistente experto en idiomas y migración de Puentes Globales. 
-    Responde siempre en español latino neutro, de forma empática y profesional.`
+    Responde siempre en español latino neutro, de forma empática y profesional.
+    Ayuda al usuario con su proceso migratorio y práctica del idioma.`
 };
 
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
     const langKey = language.toLowerCase().substring(0, 2);
     const syllabus = SYLLABUS_FULL[langKey]?.[level] || SYLLABUS_FULL['en']['A1'];
     return `You are TalkMe, an Adaptive AI Language Partner. speak at level ${level}. 
+    Current focus: ${syllabus.description || "General practice"}.
     Return ONLY a JSON object: {"message": "...", "correction": "...", "tip": "..."}`;
 };
 
@@ -33,7 +36,7 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     let responseText = null;
     let systemPrompt = PERSONAS[personaKeyOrPrompt] || personaKeyOrPrompt;
 
-    // 1. Gemini Stable Mode (Injected)
+    // 1. Gemini Stable Mode (Multi-probe)
     try {
         responseText = await callGeminiStable(userMessage, systemPrompt, history);
     } catch (error) {
@@ -56,36 +59,41 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 async function callGeminiStable(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
 
-    // Use v1 for stability and avoid system_instruction entirely
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GENAI_API_KEY}`;
+    // Probar primero v1beta (más flexible para modelos nuevos) y luego v1
+    const probes = [
+        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GENAI_API_KEY}` },
+        { url: `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${GENAI_API_KEY}` }
+    ];
 
-    // Injected history payload
-    const payload = {
-        contents: [
-            { role: "user", parts: [{ text: `SYSTEM_INSTRUCTIONS: ${systemPrompt}` }] },
-            { role: "model", parts: [{ text: "Understood. I will act according to those instructions." }] },
-            ...formatHistoryForREST(history),
-            { role: "user", parts: [{ text: message }] }
-        ],
-        generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
-    };
+    for (const probe of probes) {
+        const payload = {
+            contents: [
+                { role: "user", parts: [{ text: `SYSTEM_INSTRUCTIONS: ${systemPrompt}` }] },
+                { role: "model", parts: [{ text: "Understood. I will act according to those instructions." }] },
+                ...formatHistoryForREST(history),
+                { role: "user", parts: [{ text: message }] }
+            ],
+            generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
+        };
 
-    try {
-        console.log("🤖 [aiRouter] Intentando Gemini 1.5 Flash (V1 Stable)...");
-        const response = await axios.post(url, payload, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 12000
-        });
+        try {
+            console.log(`🤖 [aiRouter] Intentando Gemini... (${probe.url.includes('v1beta') ? 'v1beta' : 'v1'})`);
+            const response = await axios.post(probe.url, payload, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 12000
+            });
 
-        if (response.data.candidates && response.data.candidates[0].content) {
-            console.log("✅ [aiRouter] Gemini respondió exitosamente.");
-            return response.data.candidates[0].content.parts[0].text;
+            if (response.data.candidates && response.data.candidates[0].content) {
+                console.log("✅ [aiRouter] Gemini respondió exitosamente.");
+                return response.data.candidates[0].content.parts[0].text;
+            }
+        } catch (err) {
+            const detail = err.response ? JSON.stringify(err.response.data) : err.message;
+            console.warn(`❌ [aiRouter] Falló sonda Gemini: ${detail.substring(0, 100)}...`);
+            continue;
         }
-    } catch (err) {
-        const detail = err.response ? JSON.stringify(err.response.data) : err.message;
-        console.error("❌ [aiRouter] Gemini REST Error:", detail);
-        return null;
     }
+    return null;
 }
 
 async function callOpenAI(message, systemPrompt, history) {
@@ -117,29 +125,56 @@ async function callDeepSeek(message, systemPrompt, history) {
 }
 
 async function generateAudio(text) {
-    if (!ELEVENLABS_API_KEY) return null;
-    try {
-        console.log(`🎙️ [aiRouter] Solicitando Audio ElevenLabs...`);
-        const response = await axios({
-            method: 'post',
-            url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`,
-            data: { text: text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } },
-            headers: {
-                'xi-api-key': ELEVENLABS_API_KEY,
-                'Content-Type': 'application/json',
-                'accept': 'audio/mpeg'
-            },
-            responseType: 'arraybuffer',
-            timeout: 20000
-        });
-        return Buffer.from(response.data).toString('base64');
-    } catch (err) {
-        const errorMsg = err.response && err.response.data && Buffer.isBuffer(err.response.data)
-            ? err.response.data.toString()
-            : (err.response ? JSON.stringify(err.response.data) : err.message);
-        console.error(`❌ [aiRouter] ElevenLabs Error:`, errorMsg);
-        return null;
+    let audioBase64 = null;
+
+    // 1. Intentar con Google Cloud TTS (Usando la Key de Gemini)
+    if (GENAI_API_KEY) {
+        try {
+            console.log(`🎙️ [aiRouter] Generando Voz con GOOGLE...`);
+            // Nota: La API Key de Gemini suele dar acceso a TTS si está habilitada en el mismo proyecto de Google Cloud
+            const googleUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GENAI_API_KEY}`;
+
+            const response = await axios.post(googleUrl, {
+                input: { text: text },
+                voice: { languageCode: "es-US", name: "es-US-Neural2-B" },
+                audioConfig: { audioEncoding: "MP3" }
+            }, { timeout: 10000 });
+
+            if (response.data.audioContent) {
+                console.log("✅ [aiRouter] Audio generado por GOOGLE.");
+                return response.data.audioContent;
+            }
+        } catch (err) {
+            console.warn("⚠️ [aiRouter] Google TTS falló o no está habilitada. Intentando ElevenLabs...");
+        }
     }
+
+    // 2. Fallback a ElevenLabs
+    if (!audioBase64 && ELEVENLABS_API_KEY) {
+        try {
+            console.log(`🎙️ [aiRouter] Intentando ElevenLabs...`);
+            const response = await axios({
+                method: 'post',
+                url: `https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM`,
+                data: { text: text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } },
+                headers: {
+                    'xi-api-key': ELEVENLABS_API_KEY,
+                    'Content-Type': 'application/json',
+                    'accept': 'audio/mpeg'
+                },
+                responseType: 'arraybuffer',
+                timeout: 20000
+            });
+            return Buffer.from(response.data).toString('base64');
+        } catch (err) {
+            const errorMsg = err.response && err.response.data && Buffer.isBuffer(err.response.data)
+                ? err.response.data.toString()
+                : (err.response ? JSON.stringify(err.response.data) : err.message);
+            console.error(`❌ [aiRouter] ElevenLabs Error:`, errorMsg.substring(0, 100));
+        }
+    }
+
+    return null;
 }
 
 function formatHistoryForREST(history) {
