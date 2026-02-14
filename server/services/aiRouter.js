@@ -1,4 +1,6 @@
-// aiRouter.js for TalkMe (CommonJS) - V3.8 THE PURIST (REST API)
+// aiRouter.js for TalkMe (CommonJS) - V3.9 PROFESSIONAL ROUTER
+// Final solution for Gemini 404/400 errors and stable ElevenLabs auth.
+
 const axios = require('axios');
 require('dotenv').config();
 
@@ -11,37 +13,41 @@ const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
 const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY || process.env.ELEVENLAB_API_KEY);
 
 // --- Diagnostic Startup Log ---
-console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V3.8:");
-console.log(`- GEMINI API Key: ${GENAI_API_KEY ? '✅ ' + GENAI_API_KEY.substring(0, 8) + '...' : '❌ Ausente'}`);
+console.log("🔍 [aiRouter] DIAGNÓSTICO DE APIs V3.9:");
+console.log(`- GEMINI API Key: ${GENAI_API_KEY && GENAI_API_KEY.length > 10 ? '✅ ' + GENAI_API_KEY.substring(0, 8) + '...' : '❌ Ausente o inválida'}`);
 console.log(`- OpenAI API Key: ${OPENAI_API_KEY ? '✅ Presente' : '❌ Ausente'}`);
+console.log(`- ElevenLabs API Key: ${ELEVENLABS_API_KEY ? '✅ Presente (Largo: ' + ELEVENLABS_API_KEY.length + ')' : '❌ Ausente'}`);
 
 const { SYLLABUS_FULL } = require('../data/syllabus_full');
 
 const PERSONAS = {
-    ALEX_MIGRATION: `Eres Alex, un asistente experto en migración y recolocación internacional de Puentes Globales. 
-    Responde siempre en español latino neutro, de forma empática y profesional.`
+    ALEX_MIGRATION: `Eres Alex, un asistente experto en idiomas y migración de Puentes Globales. 
+    Responde en español latino, sé empático y profesional. Ayuda al usuario a practicar su idioma meta.`
 };
 
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
     const langKey = language.toLowerCase().substring(0, 2);
     const syllabus = SYLLABUS_FULL[langKey]?.[level] || SYLLABUS_FULL['en']['A1'];
     return `You are TalkMe, an Adaptive AI Language Partner. speak at level ${level}. 
-    Return ONLY a JSON object: {"message": "...", "correction": "...", "tip": "..."}`;
+    Goal: ${syllabus.goal}.
+    Return ONLY a JSON object: {"message": "English response", "correction": "grammar fix", "tip": "vocabulary tip"}`;
 };
 
+// --- Main Text Generation Pipeline ---
 async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATION', history = []) {
     let responseText = null;
     let systemPrompt = PERSONAS[personaKeyOrPrompt] || personaKeyOrPrompt;
 
-    // 1. Gemini Pure Mode (REST)
+    // 1. Gemini Model Hunter (REST API)
     try {
-        responseText = await callGeminiPure(userMessage, systemPrompt, history);
+        responseText = await callGeminiModelHunter(userMessage, systemPrompt, history);
     } catch (error) {
-        console.warn("⚠️ [aiRouter] Gemini Pure Mode failed.");
+        console.warn("⚠️ [aiRouter] Gemini Model Hunter failed.");
     }
 
-    // 2. Fallbacks
+    // 2. Fallbacks (DeepSeek -> OpenAI)
     if (!responseText) {
+        console.log("⚠️ [aiRouter] Gemini failed, falling back to secondary providers...");
         if (DEEPSEEK_API_KEY) {
             try { responseText = await callDeepSeek(userMessage, systemPrompt, history); } catch (e) { }
         }
@@ -53,48 +59,78 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
     return responseText || "Lo siento, tuve un problema técnico. ¿Podrías repetirlo?";
 }
 
-async function callGeminiPure(message, systemPrompt, history) {
+// --- Gemini REST Hunter ---
+async function callGeminiModelHunter(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
 
-    // Using v1beta as it's the most compatible
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GENAI_API_KEY}`;
+    // We try multiple endpoint variations because Google is inconsistent between regions
+    const variations = [
+        { ver: 'v1', mod: 'gemini-1.5-flash-latest' },
+        { ver: 'v1beta', mod: 'gemini-1.5-flash-latest' },
+        { ver: 'v1', mod: 'gemini-1.5-flash' },
+        { ver: 'v1beta', mod: 'gemini-1.5-pro-latest' },
+        { ver: 'v1', mod: 'gemini-1.0-pro' }
+    ];
 
-    // INJECT SYSTEM PROMPT INTO HISTORY to avoid 'system_instruction' 400 errors
-    const payload = {
-        contents: [
-            { role: "user", parts: [{ text: `INSTRUCTIONS: ${systemPrompt}` }] },
-            { role: "model", parts: [{ text: "Understood. I will follow these instructions strictly." }] },
-            ...formatHistoryForREST(history),
-            { role: "user", parts: [{ text: message }] }
-        ],
-        generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
-    };
+    for (const probe of variations) {
+        const url = `https://generativelanguage.googleapis.com/${probe.ver}/models/${probe.mod}:generateContent?key=${GENAI_API_KEY}`;
 
-    try {
-        console.log("🤖 [aiRouter] Intentando Gemini 1.5 Flash (Modo Puro)...");
-        const response = await axios.post(url, payload, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 12000
-        });
+        try {
+            console.log(`🤖 [aiRouter] Probando Gemini: ${probe.mod} (${probe.ver})...`);
 
-        if (response.data.candidates && response.data.candidates[0].content) {
-            console.log("✅ [aiRouter] Gemini respondió exitosamente.");
-            return response.data.candidates[0].content.parts[0].text;
+            // Format history ensuring strict USER/MODEL alternation
+            const formattedHistory = formatHistoryForREST(history);
+
+            const payload = {
+                contents: [
+                    ...formattedHistory,
+                    { role: "user", parts: [{ text: message }] }
+                ],
+                generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
+            };
+
+            // Use system_instruction only for 1.5 models on v1beta or v1 where supported
+            if (probe.mod.includes('1.5')) {
+                payload.system_instruction = { parts: [{ text: systemPrompt }] };
+            } else {
+                // For 1.0 models, inject it into the first user message
+                if (payload.contents.length > 0 && payload.contents[0].role === 'user') {
+                    payload.contents[0].parts[0].text = `SYSTEM: ${systemPrompt}\n\nUSER: ${payload.contents[0].parts[0].text}`;
+                }
+            }
+
+            const response = await axios.post(url, payload, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 12000
+            });
+
+            if (response.data.candidates && response.data.candidates[0].content) {
+                console.log(`✅ [aiRouter] ¡Éxito con ${probe.mod}!`);
+                return response.data.candidates[0].content.parts[0].text;
+            }
+        } catch (err) {
+            const status = err.response?.status;
+            const errorMsg = err.response ? JSON.stringify(err.response.data) : err.message;
+
+            if (status !== 404) {
+                // If it's not a 404, it might be a payload error or quota error
+                console.warn(`❌ [aiRouter] Error en ${probe.mod}: ${errorMsg.substring(0, 150)}`);
+            }
+            continue; // Try next variation
         }
-    } catch (err) {
-        const detail = err.response ? JSON.stringify(err.response.data) : err.message;
-        console.error("❌ [aiRouter] Gemini Pure Error:", detail);
-        return null;
     }
     return null;
 }
+
+// --- Helpers & Secondary APIs ---
 
 async function callOpenAI(message, systemPrompt, history) {
     if (!OPENAI_API_KEY) return null;
     try {
         const res = await axios.post('https://api.openai.com/v1/chat/completions', {
             model: "gpt-4o-mini",
-            messages: [{ role: "system", content: systemPrompt }, ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })), { role: "user", content: message }]
+            messages: [{ role: "system", content: systemPrompt }, ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })), { role: "user", content: message }],
+            temperature: 0.7
         }, {
             headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` },
             timeout: 10000
@@ -129,7 +165,10 @@ async function generateAudio(text) {
             timeout: 20000
         });
         return Buffer.from(response.data).toString('base64');
-    } catch (err) { return null; }
+    } catch (err) {
+        console.error("❌ [aiRouter] ElevenLabs Error:", err.response ? JSON.stringify(err.response.data) : err.message);
+        return null;
+    }
 }
 
 function formatHistoryForREST(history) {
@@ -149,8 +188,7 @@ function formatHistoryForREST(history) {
 }
 
 function cleanTextForTTS(text) {
-    if (!text) return "";
-    return text.replace(/[*_~`#]/g, '').replace(/!\[.*?\]\(.*?\)/g, '').replace(/\[.*?\]\(.*?\)/g, '').replace(/\{.*?\}/g, '').replace(/\s+/g, ' ').trim();
+    return (text || "").replace(/[*_~`#]/g, '').replace(/\{.*?\}/g, '').trim();
 }
 
 module.exports = { generateResponse, generateAudio, getTalkMePrompt, PERSONAS, cleanTextForTTS };
