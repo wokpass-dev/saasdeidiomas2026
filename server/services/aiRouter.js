@@ -85,7 +85,7 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 }
 
 async function callGeminiStable(message, systemPrompt, history) {
-    if (!GENAI_API_KEY) return null;
+    if (!GENAI_API_KEY || GENAI_API_KEY.includes('AIzaSyBmMz50s-MqC9UhEHnwXILWAAFR5tG0Cq4')) return null;
 
     const apiVersions = ['v1beta', 'v1'];
     const modelNames = [
@@ -148,23 +148,43 @@ async function callGeminiStable(message, systemPrompt, history) {
 async function generateAudio(text) {
     if (!text) return null;
 
-    // 1. INTENTO 1: Google Cloud Premium (Si ya habilitaste la API en la consola)
+    // 1. PLAN A: Google Cloud Premium (Voz: Studio-B MASCULINA)
+    // PARA QUE FUNCIONE: Debes habilitar "Cloud Text-to-Speech API" en tu consola de Google Cloud.
     if (GENAI_API_KEY) {
         try {
-            console.log(`🎙️ [aiRouter] Generando Voz Premium MASCULINA (Google Cloud)...`);
+            console.log(`🎙️ [aiRouter] Intentando Voz Premium MASCULINA (Google Cloud)...`);
             const googleUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GENAI_API_KEY}`;
             const response = await axios.post(googleUrl, {
                 input: { text: text },
-                voice: { languageCode: "es-US", name: "es-US-Studio-B" }, // Studio-B es una voz masculina muy potente
+                voice: { languageCode: "es-US", name: "es-US-Studio-B" },
                 audioConfig: { audioEncoding: "MP3" }
             }, { timeout: 8000 });
 
             if (response.data.audioContent) {
-                console.log("✅ [aiRouter] Audio Premium MASCULINO generado.");
+                console.log("✅ [aiRouter] Voz de Alex (Google Premium) exitosa.");
                 return response.data.audioContent;
             }
         } catch (err) {
-            console.warn("⚠️ Google Cloud TTS no disponible o falló.");
+            console.warn("⚠️ Google Cloud TTS falló (Probablemente no está habilitada la API en la consola).");
+        }
+    }
+
+    // 2. PLAN B: ElevenLabs (Voz: Josh MASCULINA)
+    if (ELEVENLABS_API_KEY) {
+        try {
+            console.log(`🎙️ [aiRouter] Intentando ElevenLabs (Voz: Josh)...`);
+            const response = await axios({
+                method: 'post',
+                url: `https://api.elevenlabs.io/v1/text-to-speech/TxPNqnSStVPId3Y9QHWH`, // Josh (Male)
+                data: { text: text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } },
+                headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json', 'accept': 'audio/mpeg' },
+                responseType: 'arraybuffer',
+                timeout: 20000
+            });
+            console.log("✅ [aiRouter] Voz de Alex (ElevenLabs) exitosa.");
+            return Buffer.from(response.data).toString('base64');
+        } catch (err) {
+            console.warn("⚠️ ElevenLabs falló o está bloqueado por IP en Render.");
         }
     }
 
