@@ -381,17 +381,13 @@ app.post('/api/chat', async (req, res) => {
     let aiContent = { message: aiRawResponse, correction: null, tip: null };
 
     try {
-      // Clean potential Markdown wrappers
       const cleanJson = aiRawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanJson);
-
-      if (parsed.message) {
-        aiContent = parsed;
-      }
+      if (parsed.message) aiContent.message = parsed.message;
+      if (parsed.correction) aiContent.correction = parsed.correction;
+      if (parsed.tip) aiContent.tip = parsed.tip;
     } catch (e) {
-      console.warn("AI JSON Parse failed in /api/chat, falling back to raw text:", e.message);
-      // Fallback: entire response is message
-      aiContent.message = aiRawResponse;
+      console.warn("AI JSON Parse failed in /api/chat, falling back to raw text");
     }
 
     res.json({
@@ -528,24 +524,25 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
         Example: { "dialogue": "Bonjour! Un café?", "feedback": "Dijiste 'un cafe', recuerda el acento." }
         RETURN ONLY JSON.`;
 
-    const combinedPrompt = systemPrompt + "\n" + jsonInstruction;
+    const combinedPrompt = systemPrompt; // getTalkMePrompt now includes JSON instructions
 
     // Call Router
-    const aiRawResponse = await generateResponse(userText, combinedPrompt, []); // No history for voice chat 'ping-pong' for now to save tokens/complexity or pass if needed
+    const aiRawResponse = await generateResponse(userText, combinedPrompt, []);
 
     // Parse JSON
-    // Gemini might wrap in ```json ... ```
     let cleanJson = aiRawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-    let aiContent;
+    let aiContent = { message: aiRawResponse, correction: null, tip: null };
     try {
-      aiContent = JSON.parse(cleanJson);
+      const parsed = JSON.parse(cleanJson);
+      if (parsed.message) aiContent.message = parsed.message;
+      if (parsed.correction) aiContent.correction = parsed.correction;
+      if (parsed.tip) aiContent.tip = parsed.tip;
     } catch (e) {
-      console.warn("AI JSON Parse failed, fallback to raw text");
-      aiContent = { dialogue: aiRawResponse, feedback: "" };
+      console.warn("AI JSON Parse failed in /api/speak, fallback to raw text");
     }
 
-    let assistantText = cleanTextForTTS(aiContent.dialogue);
-    const feedbackText = aiContent.feedback;
+    let assistantText = cleanTextForTTS(aiContent.message);
+    const feedbackText = aiContent.correction || aiContent.tip;
 
     // CRITICAL FIX: If AI fails or returns empty, provide a fallback message to prevent ElevenLabs 422
     if (!assistantText || assistantText.trim().length === 0) {

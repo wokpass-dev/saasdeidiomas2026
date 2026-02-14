@@ -27,9 +27,31 @@ const PERSONAS = {
 const getTalkMePrompt = (language = 'en', level = 'A1') => {
     const langKey = language.toLowerCase().substring(0, 2);
     const syllabus = SYLLABUS_FULL[langKey]?.[level] || SYLLABUS_FULL['en']['A1'];
-    return `You are TalkMe, an Adaptive AI Language Partner. speak at level ${level}. 
-    Current focus: ${syllabus.description || "General practice"}.
-    Return ONLY a JSON object: {"message": "...", "correction": "...", "tip": "..."}`;
+    const languages = { en: "English", de: "German (Deutsch)", fr: "French (Français)", es: "Spanish" };
+    const targetLang = languages[langKey] || "English";
+
+    return `
+    **ROLE:** You are TalkMe, an Adaptive AI Language Partner.
+    **TARGET LANGUAGE:** ${targetLang}
+    **USER LEVEL:** ${level} (${syllabus.description})
+    **GOAL:** ${syllabus.goal}
+    **GRAMMAR FOCUS:** ${syllabus.grammar}
+    **VOCABULARY FOCUS:** ${syllabus.vocab}
+    **EXPECTED ERRORS:** ${syllabus.expected_errors.join(', ')}
+    **FEEDBACK PROTOCOL:** ${syllabus.feedback_protocol}
+    **INTERACTION STYLE:** ${syllabus.interaction_style}
+
+    **STRICT INSTRUCTIONS:**
+    1. Speak ONLY in ${targetLang} unless explaining a complex grammar point.
+    2. Adhere strictly to the INTERACTION STYLE (sentence length, tone).
+    3. Monitor for EXPECTED ERRORS and apply the FEEDBACK PROTOCOL.
+    4. Respond as a JSON object:
+    {
+        "message": "Your conversational response in ${targetLang}.",
+        "correction": "Explicit correction or null.",
+        "tip": "Grammar/Vocab tip in the user's native language or null."
+    }
+    `;
 };
 
 async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATION', history = []) {
@@ -59,22 +81,35 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 async function callGeminiStable(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
 
-    // Probar primero v1beta (más flexible para modelos nuevos) y luego v1
+    // v1beta suele ser más receptivo con gemini-1.5-flash-latest
     const probes = [
-        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GENAI_API_KEY}` },
-        { url: `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${GENAI_API_KEY}` }
+        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GENAI_API_KEY}`, useSystem: true },
+        { url: `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${GENAI_API_KEY}`, useSystem: false }
     ];
 
     for (const probe of probes) {
-        const payload = {
-            contents: [
-                { role: "user", parts: [{ text: `SYSTEM_INSTRUCTIONS: ${systemPrompt}` }] },
-                { role: "model", parts: [{ text: "Understood. I will act according to those instructions." }] },
-                ...formatHistoryForREST(history),
-                { role: "user", parts: [{ text: message }] }
-            ],
-            generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
-        };
+        let payload;
+
+        if (probe.useSystem) {
+            payload = {
+                system_instruction: { parts: [{ text: systemPrompt }] },
+                contents: [
+                    ...formatHistoryForREST(history),
+                    { role: "user", parts: [{ text: message }] }
+                ],
+                generationConfig: { maxOutputTokens: 1000, temperature: 0.7, responseMimeType: "application/json" }
+            };
+        } else {
+            payload = {
+                contents: [
+                    { role: "user", parts: [{ text: `INSTRUCTIONS: ${systemPrompt}` }] },
+                    { role: "model", parts: [{ text: "Understood. I will act according to those instructions and respond in JSON." }] },
+                    ...formatHistoryForREST(history),
+                    { role: "user", parts: [{ text: message }] }
+                ],
+                generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
+            };
+        }
 
         try {
             console.log(`🤖 [aiRouter] Intentando Gemini... (${probe.url.includes('v1beta') ? 'v1beta' : 'v1'})`);
@@ -89,7 +124,7 @@ async function callGeminiStable(message, systemPrompt, history) {
             }
         } catch (err) {
             const detail = err.response ? JSON.stringify(err.response.data) : err.message;
-            console.warn(`❌ [aiRouter] Falló sonda Gemini: ${detail.substring(0, 100)}...`);
+            console.info(`ℹ️ [aiRouter] Sonda Gemini falló: ${detail.substring(0, 150)}...`);
             continue;
         }
     }
