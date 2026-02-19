@@ -135,7 +135,13 @@ async function callGeminiStable(message, systemPrompt, history) {
             const payload = {
                 system_instruction: { parts: [{ text: systemPrompt }] },
                 contents: [...formatHistoryForREST(history), { role: "user", parts: [{ text: message }] }],
-                generationConfig: { maxOutputTokens: 1000, temperature: 0.7 }
+                generationConfig: { maxOutputTokens: 1000, temperature: 0.7 },
+                safetySettings: [
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                ]
             };
 
             try {
