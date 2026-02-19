@@ -212,10 +212,29 @@ async function generateAudio(text) {
 }
 
 function formatHistoryForREST(history) {
-    return (history || []).map(h => ({
-        role: h.role === 'user' ? 'user' : 'model',
-        parts: [{ text: h.content || "" }]
-    })).filter(h => h.parts[0].text).slice(-10);
+    let chatHistory = [];
+    let lastRole = null;
+
+    // Gemini REQUIRES alternating roles: user -> model -> user -> model
+    for (const msg of (history || [])) {
+        let currentRole = (msg.role === 'user' || msg.role === 'model') ? msg.role : (msg.role === 'assistant' ? 'model' : 'user');
+        const text = String(msg.content || "").trim();
+
+        if (text && currentRole !== lastRole) {
+            chatHistory.push({ role: currentRole, parts: [{ text: text }] });
+            lastRole = currentRole;
+        }
+    }
+
+    // Rules:
+    // 1. Must start with 'user'
+    // 2. Must end with 'model' (before the new user msg)
+    if (chatHistory.length > 0) {
+        if (chatHistory[0].role !== 'user') chatHistory.shift();
+        if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role !== 'model') chatHistory.pop();
+    }
+
+    return chatHistory.slice(-10);
 }
 
 function getProviderConfigStatus() {
