@@ -169,29 +169,61 @@ async function callDeepSeek(message, systemPrompt, history) {
 
 async function generateAudio(text) {
     if (!text) return null;
-    const voice = process.env.TTS_VOICE || "onyx";
+    const voice = process.env.TTS_VOICE || "onyx"; // onyx is a high-quality OpenAI voice
 
-    // Attempt ElevenLabs (Josh)
+    // 1. Attempt OpenAI TTS (Premium Quality)
+    if (OPENAI_API_KEY) {
+        try {
+            const response = await axios({
+                method: 'post',
+                url: 'https://api.openai.com/v1/audio/speech',
+                data: {
+                    model: "tts-1",
+                    input: text,
+                    voice: voice, // onyx, alloy, echo, fable, nova, shimmer
+                },
+                headers: {
+                    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                responseType: 'arraybuffer',
+                timeout: 15000
+            });
+            return Buffer.from(response.data).toString('base64');
+        } catch (e) {
+            console.warn(`⚠️ [aiRouter] OpenAI TTS failed: ${e.message}`);
+        }
+    }
+
+    // 2. Attempt ElevenLabs (Optional Fallback)
     if (ELEVENLABS_API_KEY) {
         try {
             const response = await axios({
                 method: 'post',
-                url: `https://api.elevenlabs.io/v1/text-to-speech/TxPNqnSStVPId3Y9QHWH`,
-                data: { text: text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75 } },
+                url: `https://api.elevenlabs.io/v1/text-to-speech/TxPNqnSStVPId3Y9QHWH`, // Josh Voice
+                data: {
+                    text: text,
+                    model_id: "eleven_multilingual_v2",
+                    voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                },
                 headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
                 responseType: 'arraybuffer',
                 timeout: 10000
             });
             return Buffer.from(response.data).toString('base64');
-        } catch (e) { }
+        } catch (e) {
+            console.warn(`⚠️ [aiRouter] ElevenLabs TTS failed: ${e.message}`);
+        }
     }
 
-    // Fallback to Google Translate
+    // 3. Fallback to Google Translate (Free/Stable)
     try {
         const url = googleTTS.getAudioUrl(text, { lang: 'es', host: 'https://translate.google.com' });
         const audioRes = await axios.get(url, { responseType: 'arraybuffer' });
         return Buffer.from(audioRes.data).toString('base64');
-    } catch (e) { }
+    } catch (e) {
+        console.error(`❌ [aiRouter] All TTS providers failed.`);
+    }
 
     return null;
 }
