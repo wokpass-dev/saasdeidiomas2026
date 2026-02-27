@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-// WARNING: Keys should be in .env.local
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Hardcoded config (Render static sites don't inject env vars at runtime)
+const supabaseUrl = 'https://flsguqlmcqxyulkqmriu.supabase.co'
+const supabaseKey = 'sb_publishable_F2h4qlMjmDY0sb8D-t5adw_5l31usVM'
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
