@@ -1,4 +1,4 @@
-// aiRouter.js for TalkMe (CommonJS) - V5.0 ALEX EVOLUTION
+// aiRouter.js for TalkMe (CommonJS) - V6.0 PERSISTENT MEMORY
 const axios = require('axios');
 const googleTTS = require('google-tts-api');
 require('dotenv').config();
@@ -7,6 +7,15 @@ require('dotenv').config();
 const BRAND_NAME = "ALEX";
 const { MIGRATION_SYSTEM_PROMPT_V1 } = require('../config/migrationPrompt');
 const PERSONAS_ALEX = require('../config/personas');
+
+// --- Supabase for Persistent Memory ---
+const { createClient } = require('@supabase/supabase-js');
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseAdmin = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
+
+if (supabaseAdmin) console.log('✅ [aiRouter] Supabase connected for persistent memory');
+else console.warn('⚠️ [aiRouter] No Supabase - using RAM-only memory');
 
 // --- Robust Key Cleaning ---
 const cleanKey = (k) => (k || "").trim().replace(/[\r\n\t]/g, '').replace(/\s/g, '');
@@ -22,7 +31,7 @@ const OPENAI_TIMEOUT = parseInt(process.env.OPENAI_TIMEOUT_MS) || 25000;
 const DEEPSEEK_TIMEOUT = parseInt(process.env.DEEPSEEK_TIMEOUT_MS) || 15000;
 const BRAIN_TIMEOUT = parseInt(process.env.BRAIN_TIMEOUT_MS) || 20000;
 
-// Memory & State (In-memory storage for demo/session purposes)
+// Memory & State (RAM cache + Supabase persistence)
 const conversationMemory = new Map();
 const conversationState = new Map();
 
@@ -60,6 +69,41 @@ function buildMemoryContext(userId) {
     context += `- Estado actual: ${JSON.stringify(state)}\n`;
 
     return context;
+}
+
+// --- Persistent Memory Functions ---
+
+async function loadHistoryFromDB(userId, limit = 20) {
+    if (!supabaseAdmin || !userId || userId === 'default_user') return [];
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('conversations')
+            .select('role, content')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+        if (error) { console.warn('⚠️ [Memory] DB load failed:', error.message); return []; }
+        // Reverse to chronological order
+        return (data || []).reverse();
+    } catch (e) {
+        console.warn('⚠️ [Memory] DB load error:', e.message);
+        return [];
+    }
+}
+
+async function saveMessageToDB(userId, role, content, provider = 'unknown', persona = 'TALKME') {
+    if (!supabaseAdmin || !userId || userId === 'default_user') return;
+    try {
+        await supabaseAdmin.from('conversations').insert({
+            user_id: userId,
+            role,
+            content: (content || '').substring(0, 5000), // Limit to 5K chars
+            provider,
+            persona
+        });
+    } catch (e) {
+        console.warn('⚠️ [Memory] DB save error:', e.message);
+    }
 }
 
 // --- Main Text Generation Function ---
@@ -113,11 +157,16 @@ async function generateResponse(userMessage, personaKey = 'ALEX_MIGRATION', hist
         responseText = responseText.replace(/Alexandra/g, BRAND_NAME);
     }
 
-    // Update Memory
+    // Update RAM Memory
     const currentHist = conversationMemory.get(userId) || [];
     currentHist.push({ role: 'user', content: normalizedUserMessage });
     if (responseText) currentHist.push({ role: 'assistant', content: responseText });
-    conversationMemory.set(userId, currentHist.slice(-10)); // Keep last 10
+    conversationMemory.set(userId, currentHist.slice(-20)); // Keep last 20 in RAM
+
+    // Persist to Supabase (async, no await to avoid slowing response)
+    const usedProvider = responseText ? 'ai' : 'none';
+    saveMessageToDB(userId, 'user', normalizedUserMessage, 'user', personaKey);
+    if (responseText) saveMessageToDB(userId, 'assistant', responseText, usedProvider, personaKey);
 
     return responseText || `Lo siento, soy ${BRAND_NAME} y estoy experimentando latencia. ¿Podrías repetirlo?`;
 }
