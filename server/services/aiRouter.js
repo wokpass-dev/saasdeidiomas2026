@@ -314,34 +314,12 @@ function getUserState(userId) {
     return conversationState.get(userId) || {};
 }
 
-// --- TalkMe Specific Prompts ---
+// --- TalkMe Specific Prompts (Powered by Teaching Constitution) ---
+
+const { buildTeachingSystemPrompt } = require('../config/teachingPrompt');
 
 function getTalkMePrompt(language = 'en', level = 'A1') {
-    const langNames = { en: 'English', fr: 'French', de: 'German', it: 'Italian', pt: 'Portuguese' };
-    const targetLang = langNames[language] || 'English';
-
-    return `You are ALEX, a friendly and patient ${targetLang} language tutor from Puentes Globales.
-
-STUDENT LEVEL: ${level}
-TARGET LANGUAGE: ${targetLang}
-
-YOUR RULES:
-- Speak primarily in ${targetLang}, adjusting complexity to ${level} level.
-- If the student struggles, gently switch to Spanish to explain.
-- Correct grammar mistakes subtly and encouragingly.
-- Keep responses conversational and brief (2-4 sentences max).
-- Ask follow-up questions to keep the conversation flowing.
-- Give cultural tips when relevant.
-
-RESPONSE FORMAT (JSON):
-You MUST respond in valid JSON format:
-{
-    "message": "Your conversational response in ${targetLang}",
-    "correction": "Grammar correction in Spanish if needed, or null",
-    "tip": "Cultural or language tip in Spanish, or null"
-}
-
-RETURN ONLY JSON. No extra text outside the JSON.`;
+    return buildTeachingSystemPrompt(language, level);
 }
 
 function cleanTextForTTS(text) {
