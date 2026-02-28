@@ -42,6 +42,16 @@ export default function Login() {
                     if (accessCode.length < 6) {
                         throw new Error('El código debe tener 6 caracteres.');
                     }
+                    // Validate code against server
+                    try {
+                        const codeCheck = await api.post('/verify-code', { code: accessCode });
+                        if (!codeCheck.data.valid) {
+                            throw new Error('Código de alumno inválido. Contacta a tu instructor.');
+                        }
+                    } catch (codeErr) {
+                        if (codeErr.message.includes('inválido')) throw codeErr;
+                        throw new Error('No se pudo verificar el código. Intenta de nuevo.');
+                    }
                 }
 
                 const { error } = await supabase.auth.signUp({
