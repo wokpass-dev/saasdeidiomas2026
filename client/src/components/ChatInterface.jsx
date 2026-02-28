@@ -92,7 +92,8 @@ export default function ChatInterface({ session }) {
 
     const handleAudioCapture = async (captured) => {
         // Nueva lógica: si recibimos texto directamente del Google STT
-        if (captured.text) {
+        // IMPORTANT: Blob has a .text() METHOD, so we must check typeof to avoid confusion
+        if (captured && typeof captured.text === 'string') {
             setInput(captured.text);
             // Simular el envío del mensaje de texto
             const fakeEvent = { preventDefault: () => { } };
