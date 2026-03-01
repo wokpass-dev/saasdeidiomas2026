@@ -1,8 +1,18 @@
 import axios from 'axios';
 
 const getBaseUrl = () => {
-    // Return environment variable if defined, falling back to local dev URL
-    return import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+    // Priority 1: Environment variable
+    if (import.meta.env.VITE_API_URL) {
+        return import.meta.env.VITE_API_URL;
+    }
+
+    // Priority 2: Hardcoded Production URL (Fallback when deployed but no env var is set)
+    if (import.meta.env.PROD) {
+        return 'https://mvp-idiomas-server.onrender.com/api';
+    }
+
+    // Priority 3: Local Dev
+    return 'http://localhost:3000/api';
 };
 
 const api = axios.create({
