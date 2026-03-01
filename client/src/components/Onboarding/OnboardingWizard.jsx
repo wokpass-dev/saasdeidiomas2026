@@ -5,6 +5,7 @@ import GoalSelection from './Steps/GoalSelection';
 import LevelAssessment from './Steps/LevelAssessment';
 import InterestsSelection from './Steps/InterestsSelection';
 import api from '../../services/api';
+import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 
 export default function OnboardingWizard({ session, onComplete }) {
@@ -39,13 +40,32 @@ export default function OnboardingWizard({ session, onComplete }) {
             // SUBMIT
             setLoading(true);
             try {
-                console.log("Submitting Profile:", formData);
-                await api.post('/profile', formData);
+                const userId = session?.user?.id;
+                if (!userId) throw new Error("No user ID found");
+
+                const submitData = {
+                    id: userId,
+                    goal: formData.goal,
+                    level: formData.level,
+                    interests: formData.interests,
+                    age: formData.age,
+                    onboarding_completed: true
+                };
+
+                console.log("Submitting Profile to Supabase:", submitData);
+
+                // Save directly to Supabase from the frontend to bypass backend RLS issues
+                const { error } = await supabase
+                    .from('profiles')
+                    .upsert(submitData);
+
+                if (error) throw error;
+
                 if (onComplete) onComplete();
                 else navigate('/dashboard');
             } catch (error) {
                 console.error("Error saving profile:", error);
-                alert("Error guardando perfil. Intenta de nuevo.");
+                alert(`Error guardando perfil: ${error.message || 'Intenta de nuevo.'}`);
             } finally {
                 setLoading(false);
             }
@@ -103,8 +123,8 @@ export default function OnboardingWizard({ session, onComplete }) {
                             onClick={handleNext}
                             disabled={!isValid() || loading}
                             className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${isValid() && !loading
-                                    ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-600/25'
-                                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                                ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-600/25'
+                                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                                 }`}
                         >
                             {loading ? 'Guardando...' : step === steps.length - 1 ? 'Finalizar' : 'Continuar'}
