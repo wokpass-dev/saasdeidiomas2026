@@ -206,14 +206,36 @@ app.post('/api/admin/config', (req, res) => {
   }
 });
 
-const scenarios = require('./scenarios');
+const { buildCurriculum } = require('./scenarios');
 
-app.get('/api/scenarios', (req, res) => {
-  res.json(scenarios);
+app.get('/api/scenarios', async (req, res) => {
+  try {
+    const lang = req.query.lang || 'en';
+    const userId = req.query.userId;
+    let completedScenarios = [];
+
+    // Fetch student progress from DB
+    if (userId && supabaseAdmin) {
+      const { data } = await supabaseAdmin
+        .from('student_progress')
+        .select('scenario_id')
+        .eq('user_id', userId)
+        .eq('status', 'completed');
+      if (data) completedScenarios = data.map(d => d.scenario_id);
+    }
+
+    const curriculum = buildCurriculum(lang, completedScenarios);
+    res.json(curriculum);
+  } catch (err) {
+    console.error('Scenarios Error:', err);
+    // Fallback: return basic curriculum without progress
+    res.json(buildCurriculum(req.query.lang || 'en', []));
+  }
 });
 
-const getSystemMessage = (scenarioId) => {
-  for (const level of scenarios) {
+const getSystemMessage = (scenarioId, lang = 'en') => {
+  const curriculum = buildCurriculum(lang, []);
+  for (const level of curriculum) {
     if (level.modules) {
       for (const module of level.modules) {
         if (module.lessons) {
