@@ -444,8 +444,8 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
 
 
 
-    // 1. STT: Usamos Gemini 1.5 Flash para transcribir
-    currentStage = 'STT (Gemini Flash)';
+    // 1. STT: Gemini 1.5 Flash (Primary) with Fallback to OpenAI Whisper
+    currentStage = 'STT (Gemini/Whisper Fallback)';
 
     // Debug: Ver qué archivo recibimos
     console.log('📁 Archivo recibido:', {
@@ -456,46 +456,73 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     });
 
     const originalPath = audioFile.path;
+    const newPath = originalPath + '.webm';
 
-    console.log('🎤 Transcribiendo audio con Gemini 1.5 Flash...');
+    // Whisper requires proper extension to identify format, Gemini supports both file and base64
+    console.log('🔄 Renombrando archivo:', originalPath, '→', newPath);
+    fs.renameSync(originalPath, newPath);
 
-    let userText = ''; // Declarar fuera del try
+    let userText = '';
 
     try {
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      console.log('🎤 Intentando STT con Gemini 1.5 Flash...');
+      const genAI = new GoogleGenerativeAI(cleanKey(process.env.GEMINI_API_KEY));
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
       const audioPart = {
         inlineData: {
-          data: fs.readFileSync(originalPath).toString("base64"),
+          data: fs.readFileSync(newPath).toString("base64"),
           mimeType: audioFile.mimetype || 'audio/webm'
         },
       };
 
-      const result = await model.generateContent([
-        "Transcribe this audio precisely in the language spoken. Output ONLY the text spoken, nothing else. If it is completely silent, output nothing.",
-        audioPart
+      const result = await Promise.race([
+        model.generateContent([
+          "Transcribe this audio precisely in the language spoken. Output ONLY the text spoken, nothing else. If it is completely silent, output nothing.",
+          audioPart
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini STT Timeout")), 10000))
       ]);
 
       userText = result.response.text().trim();
       console.log('✅ Gemini STT exitoso:', userText);
 
-      // Limpiar el archivo original
-      cleanup(originalPath);
-
-      if (!userText) {
-        return res.json({
-          userText: "",
-          assistantText: "No te escuché bien, ¿podrías repetir?",
-          feedbackText: null,
-          audioBase64: null
-        });
-      }
     } catch (sttError) {
-      console.error('❌ Error en Gemini STT:', sttError.message);
-      // Limpiar archivo en caso de error
-      if (fs.existsSync(originalPath)) cleanup(originalPath);
-      throw sttError; // Re-lanzar para que lo maneje el catch principal
+      console.warn('⚠️ [STT] Falló Gemini, pasando a OpenAI Whisper fallback:', sttError.message);
+
+      try {
+        if (!process.env.OPENAI_API_KEY) throw new Error("No OpenAI API Key configured for fallback.");
+
+        console.log('🎤 Intentando Fallback STT con OpenAI Whisper...');
+        const transcription = await Promise.race([
+          openai.audio.transcriptions.create({
+            file: fs.createReadStream(newPath),
+            model: 'whisper-1',
+            language: 'en', // Automatically transcodes depending on user input if not EN
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Whisper STT Timeout")), 15000))
+        ]);
+
+        userText = transcription.text.trim();
+        console.log('✅ Whisper STT (Fallback) exitoso:', userText);
+
+      } catch (whisperError) {
+        console.error('❌ [STT] Ambos proveedores fallaron. Error de Whisper:', whisperError.message);
+        if (fs.existsSync(newPath)) cleanup(newPath);
+        throw whisperError; // Both failed, propagate error to the catch block
+      }
+    }
+
+    // Limpiar el archivo fusionado al final
+    cleanup(newPath);
+
+    if (!userText) {
+      return res.json({
+        userText: "",
+        assistantText: "No te escuché bien, ¿podrías repetir?",
+        feedbackText: null,
+        audioBase64: null
+      });
     }
 
     // 2. Chat: Use aiRouter (Gemini Flash)
