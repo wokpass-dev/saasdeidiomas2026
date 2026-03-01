@@ -108,14 +108,23 @@ async function saveMessageToDB(userId, role, content, provider = 'unknown', pers
 
 // --- Main Text Generation Function ---
 
-async function generateResponse(userMessage, personaKey = 'ALEX_MIGRATION', history = [], userId = 'default_user') {
+async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATION', history = [], userId = 'default_user') {
     const normalizedUserMessage = userMessage || "";
     extractUserState(normalizedUserMessage, userId);
 
-    let systemPrompt = PERSONAS_ALEX[personaKey]?.systemPrompt || PERSONAS_ALEX['ALEX_MIGRATION'].systemPrompt;
+    let systemPrompt = "";
+    let personaNameForDB = "TALKME";
 
-    if (personaKey === 'ALEX_MIGRATION') {
+    if (PERSONAS_ALEX[personaKeyOrPrompt]) {
+        systemPrompt = PERSONAS_ALEX[personaKeyOrPrompt].systemPrompt;
+        personaNameForDB = personaKeyOrPrompt;
+    } else if (personaKeyOrPrompt === 'ALEX_MIGRATION') {
         systemPrompt = MIGRATION_SYSTEM_PROMPT_V1;
+        personaNameForDB = 'ALEX_MIGRATION';
+    } else {
+        // Fallback: It's a raw custom prompt (e.g., from TalkMe)
+        systemPrompt = personaKeyOrPrompt;
+        personaNameForDB = 'TALKME';
     }
 
     // Append memory context
@@ -165,8 +174,8 @@ async function generateResponse(userMessage, personaKey = 'ALEX_MIGRATION', hist
 
     // Persist to Supabase (async, no await to avoid slowing response)
     const usedProvider = responseText ? 'ai' : 'none';
-    saveMessageToDB(userId, 'user', normalizedUserMessage, 'user', personaKey);
-    if (responseText) saveMessageToDB(userId, 'assistant', responseText, usedProvider, personaKey);
+    saveMessageToDB(userId, 'user', normalizedUserMessage, 'user', personaNameForDB);
+    if (responseText) saveMessageToDB(userId, 'assistant', responseText, usedProvider, personaNameForDB);
 
     return responseText || `Lo siento, soy ${BRAND_NAME} y estoy experimentando latencia. ¿Podrías repetirlo?`;
 }
