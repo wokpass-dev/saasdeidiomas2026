@@ -38,18 +38,55 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+const { createClient } = require('@supabase/supabase-js');
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseAdmin = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
+
+// --- Stripe Payment Webhook ---
+// Must be registered BEFORE express.json() to preserve raw body!
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+app.post('/api/webhooks/payment', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    if (process.env.STRIPE_WEBHOOK_SECRET && sig) {
+      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } else {
+      event = JSON.parse(req.body.toString());
+    }
+  } catch (err) {
+    console.error('⚠️ Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle successful payments
+  if (event.type === 'checkout.session.completed' || event.type === 'invoice.payment_succeeded') {
+    const session = event.data.object;
+    const userId = session.client_reference_id || session.metadata?.userId;
+
+    if (!supabaseAdmin) return res.status(500).json({ error: 'DB not connected' });
+    if (userId) {
+      try {
+        const { error } = await supabaseAdmin.from('profiles').update({ is_premium: true }).eq('id', userId);
+        if (error) throw error;
+        console.log(`✅ Webhook: Premium activated for user ${userId} via Stripe`);
+      } catch (err) {
+        console.error('❌ Webhook Update Error:', err);
+      }
+    }
+  }
+  res.status(200).json({ received: true });
+});
+
 app.use(express.json());
 
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
-
-const { createClient } = require('@supabase/supabase-js');
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabaseAdmin = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 const OpenAI = require('openai');
 // Fix 401: Trim API Key
