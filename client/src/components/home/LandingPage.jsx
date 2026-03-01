@@ -28,41 +28,40 @@ const LandingPage = () => {
                     <img
                         src="/home/img/landing/uploaded_image_0_1768144162832.jpg"
                         alt="Avión en nubes"
-                        className="w-full h-full object-cover opacity-30 hover:scale-105 transition-transform duration-[20s]"
+                        className="w-full h-full object-cover opacity-40 hover:scale-105 transition-transform duration-[20s]"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-b from-slate-950/90 via-slate-900/80 to-slate-950"></div>
+                    <div className="absolute inset-0 bg-gradient-to-b from-slate-900/80 via-transparent to-slate-900"></div>
                 </div>
 
                 <div className="relative z-10 container mx-auto px-6 text-center">
                     <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
                         <div className="flex justify-center mb-6">
-                            <div className="w-24 h-24 bg-gradient-to-tr from-fuchsia-600 to-purple-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-fuchsia-500/20 transform -rotate-6">
-                                <Mic size={48} className="text-white transform rotate-6" />
-                            </div>
+                            <img src="/home/logo.jpg" alt="Puentes Globales Logo" className="w-24 h-24 object-contain" />
                         </div>
-                        <h1 className="text-5xl md:text-7xl font-black mb-6 tracking-tight text-white uppercase">
-                            Prepárate en idiomas <br /> con <span className="text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-purple-400">TalkMe IA</span>
+                        <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
+                            Emigrar con <span className="text-blue-400">confianza</span> es posible
                         </h1>
-                        <p className="text-xl md:text-2xl text-slate-300 font-medium max-w-3xl mx-auto mb-12">
-                            Entrena tu conversación con niveles europeos (CEFR). Sin miedos, sin vergüenza, solo tú y tu instructor de Inteligencia Artificial.
+                        <p className="text-xl md:text-2xl text-slate-300 font-light max-w-3xl mx-auto mb-10">
+                            No es improvisar, es planificar. Tu futuro en Europa comienza hoy.
                         </p>
 
                         {/* HERO BUTTONS - JOB SEARCH PRIORITY */}
-                        <div className="flex flex-col items-center gap-6">
+                        <div className="flex flex-col items-center gap-4">
                             <Link
                                 to="/login"
-                                className="group relative inline-flex items-center justify-center gap-3 px-12 py-6 bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white rounded-full font-black text-xl md:text-2xl transition-all shadow-[0_0_30px_rgba(192,38,211,0.3)] hover:shadow-[0_0_50px_rgba(192,38,211,0.5)] transform hover:scale-105"
+                                className="group relative inline-flex items-center justify-center gap-3 px-10 py-5 bg-white text-slate-900 hover:bg-blue-50 rounded-full font-black text-xl md:text-2xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] transform hover:scale-105"
                             >
-                                <Mic className="w-6 h-6 md:w-8 md:h-8 text-fuchsia-100" />
-                                <span>Comenzar a Hablar Ahora</span>
+                                <Briefcase className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
+                                <span>Empieza aquí tu búsqueda laboral</span>
                             </Link>
+                            <p className="text-sm text-slate-400 mb-4">Conecta con las mejores ofertas en Europa</p>
 
-                            <a
-                                href="https://ats-career-client.vercel.app/"
-                                className="px-8 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-full font-bold text-sm uppercase tracking-widest transition-all backdrop-blur-md"
+                            <Link
+                                to="/login"
+                                className="px-8 py-3 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 text-blue-300 rounded-full font-bold text-lg transition-all flex items-center justify-center gap-2 backdrop-blur-md"
                             >
-                                Volver al Motor de Carrera Global
-                            </a>
+                                <Mic size={20} /> Probar SpeakGo Ahora
+                            </Link>
                         </div>
                     </motion.div>
                 </div>
@@ -120,11 +119,11 @@ const LandingPage = () => {
                 </div>
             </section>
 
-            {/* 4. TALKME SOLUTION (Text Only) */}
+            {/* 4. SPEAKGO SOLUTION (Text Only) */}
             <section className="py-20 bg-slate-800">
                 <div className="container mx-auto px-6 max-w-4xl text-center">
                     <h2 className="text-3xl md:text-5xl font-bold mb-8">
-                        Nuestra Solución: Talkme AI
+                        Nuestra Solución: SpeakGo AI
                     </h2>
                     <p className="text-xl text-slate-300 mb-8 leading-relaxed">
                         Contamos con una plataforma que brinda <strong>asesoramiento inteligente</strong> con respuestas inmediatas.
@@ -135,7 +134,7 @@ const LandingPage = () => {
                     </p>
 
                     <Link to="/login" className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl font-bold text-xl shadow-lg hover:shadow-blue-500/40 transition-all transform hover:-translate-y-1">
-                        <Mic size={28} /> Probar Talkme Ahora
+                        <Mic size={28} /> Probar SpeakGo Ahora
                     </Link>
                 </div>
             </section>

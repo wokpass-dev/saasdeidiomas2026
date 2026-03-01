@@ -51,22 +51,10 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabaseAdmin = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
-const cleanKey = (k) => (k || "").trim().replace(/[\r\n\t]/g, '').replace(/\s/g, '');
-
 const OpenAI = require('openai');
-// Fix 401 & bypass GitHub Push Protection:
-let activeOpenAiKey = cleanKey(process.env.OPENAI_API_KEY);
-if (!activeOpenAiKey || activeOpenAiKey.endsWith('hQAA')) {
-  activeOpenAiKey = "sk-proj-7vy9f3-B_N8J_gHF" + "FGgW4tqirx68AmDwJgdwLWQcHBj06" + "KwsohLm7Kwxe07kaP94Utea3C" + "krW9T3BlbkFJp1iDgQ71KlJBpxjl_stu5Uy" + "s_A3rUJlUBxtySxLB0C85qxOiuuAwMCxMg7wW_qYlJp8EuVjf8A";
-}
-
-let activeGeminiKey = cleanKey(process.env.GEMINI_API_KEY);
-if (!activeGeminiKey || activeGeminiKey.startsWith('AIzaSyBmMz')) {
-  activeGeminiKey = "AIzaSyCc9OE" + "mS5JITiWtK3NU3N4" + "-lLCMo9KJW6U";
-}
-
+// Fix 401: Trim API Key
 const openai = new OpenAI({
-  apiKey: activeOpenAiKey,
+  apiKey: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.trim() : '',
 });
 
 app.use(express.urlencoded({ extended: true }));
@@ -107,34 +95,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// --- Payment Webhook Placeholder ---
-// This endpoint receives successful payment events (e.g., from Stripe or Paddle)
-app.post('/api/webhooks/payment', async (req, res) => {
-  // TODO: Add Signature Verification (Stripe/Paddle sec)
-
-  const { eventType, userId, planId, status } = req.body;
-
-  if (eventType === 'payment_success' && status === 'succeeded') {
-    if (!supabaseAdmin) return res.status(500).json({ error: 'DB not connected' });
-
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('profiles')
-        .update({ is_premium: true }) // Activate premium
-        .eq('id', userId);
-
-      if (error) throw error;
-
-      console.log(`✅ Webhook: Premium activated for user ${userId}`);
-      return res.status(200).json({ received: true, premiumAction: 'activated' });
-    } catch (err) {
-      console.error('Webhook Update Error:', err);
-      return res.status(500).json({ error: 'Failed to update user profile' });
-    }
-  }
-
-  res.status(200).json({ received: true });
-});
 
 app.get('/api/admin/users', async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: 'DB not connected' });
@@ -304,7 +264,7 @@ app.post('/api/profile', async (req, res) => {
     res.json({ success: true, message: 'Profile saved' });
   } catch (err) {
     console.error('Profile Save Error:', err);
-    res.status(500).json({ error: 'Failed to save profile', details: err.message || err.details || err });
+    res.status(500).json({ error: 'Failed to save profile' });
   }
 });
 
@@ -332,7 +292,7 @@ app.post('/api/verify-code', (req, res) => {
   }
 });
 
-const { generateResponse, generateAudio, getTalkMePrompt, cleanTextForTTS } = require('./services/aiRouter');
+const { generateResponse, generateAudio, getSpeakGoPrompt, cleanTextForTTS } = require('./services/aiRouter');
 
 app.post('/api/chat', async (req, res) => {
   try {
@@ -367,7 +327,7 @@ app.post('/api/chat', async (req, res) => {
         if (profile.goal && profile.goal.toLowerCase().includes('alem')) language = 'de';
         else if (profile.goal && profile.goal.toLowerCase().includes('fran')) language = 'fr';
 
-        systemPrompt = getTalkMePrompt(language, level);
+        systemPrompt = getSpeakGoPrompt(language, level);
       }
     }
 
@@ -380,7 +340,7 @@ app.post('/api/chat', async (req, res) => {
 
     const aiRawResponse = await generateResponse(userLastMsg, systemPrompt, history);
 
-    // Parse JSON from AI (TalkMe now outputs structured data)
+    // Parse JSON from AI (SpeakGo now outputs structured data)
     let aiContent = { message: aiRawResponse, correction: null, tip: null };
 
     try {
@@ -454,8 +414,8 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
 
 
 
-    // 1. STT: Gemini 1.5 Flash (Primary) with Fallback to OpenAI Whisper
-    currentStage = 'STT (Gemini/Whisper Fallback)';
+    // 1. STT: Usamos OpenAI Whisper para transcribir (más estable que Gemini)
+    currentStage = 'STT (Whisper)';
 
     // Debug: Ver qué archivo recibimos
     console.log('📁 Archivo recibido:', {
@@ -465,87 +425,57 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       path: audioFile.path
     });
 
+    // FIX: Multer guarda archivos SIN extensión. Whisper necesita la extensión .webm
+    // para detectar el formato correctamente.
     const originalPath = audioFile.path;
     const newPath = originalPath + '.webm';
 
-    // Whisper requires proper extension to identify format, Gemini supports both file and base64
     console.log('🔄 Renombrando archivo:', originalPath, '→', newPath);
     fs.renameSync(originalPath, newPath);
 
-    let userText = '';
+    console.log('🎤 Transcribiendo audio con OpenAI Whisper...');
+
+    let userText = ''; // Declarar fuera del try
 
     try {
-      console.log('🎤 Intentando STT con Gemini 2.5 Flash...');
-      const genAI = new GoogleGenerativeAI(activeGeminiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-      const audioPart = {
-        inlineData: {
-          data: fs.readFileSync(newPath).toString("base64"),
-          mimeType: audioFile.mimetype || 'audio/webm'
-        },
-      };
-
-      const result = await Promise.race([
-        model.generateContent([
-          "Transcribe this audio precisely in the language spoken. Output ONLY the text spoken, nothing else. If it is completely silent, output nothing.",
-          audioPart
-        ]),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini STT Timeout")), 10000))
-      ]);
-
-      userText = result.response.text().trim();
-      console.log('✅ Gemini STT exitoso:', userText);
-
-    } catch (sttError) {
-      console.warn('⚠️ [STT] Falló Gemini, pasando a OpenAI Whisper fallback:', sttError.message);
-
-      try {
-        if (!process.env.OPENAI_API_KEY) throw new Error("No OpenAI API Key configured for fallback.");
-
-        console.log('🎤 Intentando Fallback STT con OpenAI Whisper...');
-        const transcription = await Promise.race([
-          openai.audio.transcriptions.create({
-            file: fs.createReadStream(newPath),
-            model: 'whisper-1',
-            language: 'en', // Automatically transcodes depending on user input if not EN
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Whisper STT Timeout")), 15000))
-        ]);
-
-        userText = transcription.text.trim();
-        console.log('✅ Whisper STT (Fallback) exitoso:', userText);
-
-      } catch (whisperError) {
-        console.error('❌ [STT] Ambos proveedores fallaron. Error de Whisper:', whisperError.message);
-        if (fs.existsSync(newPath)) cleanup(newPath);
-        throw whisperError; // Both failed, propagate error to the catch block
-      }
-    }
-
-    // Limpiar el archivo fusionado al final
-    cleanup(newPath);
-
-    if (!userText) {
-      return res.json({
-        userText: "",
-        assistantText: "No te escuché bien, ¿podrías repetir?",
-        feedbackText: null,
-        audioBase64: null
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(newPath),
+        model: 'whisper-1',
+        language: 'en', // Puedes cambiar según el idioma del usuario
       });
+
+      userText = transcription.text.trim();
+      console.log('✅ Whisper STT exitoso:', userText);
+
+      // Limpiar el archivo renombrado
+      cleanup(newPath);
+
+      if (!userText) {
+        return res.json({
+          userText: "",
+          assistantText: "No te escuché bien, ¿podrías repetir?",
+          feedbackText: null,
+          audioBase64: null
+        });
+      }
+    } catch (whisperError) {
+      console.error('❌ Error en Whisper STT:', whisperError.message);
+      // Limpiar archivo en caso de error
+      if (fs.existsSync(newPath)) cleanup(newPath);
+      throw whisperError; // Re-lanzar para que lo maneje el catch principal
     }
 
     // 2. Chat: Use aiRouter (Gemini Flash)
     currentStage = 'LLM (Chat)';
 
-    let systemPrompt = getTalkMePrompt('en', 'A1'); // Default
+    let systemPrompt = getSpeakGoPrompt('en', 'A1'); // Default
 
     if (userId && supabaseAdmin) {
       const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('id', userId).single();
       if (profile) {
         const lang = (profile.goal && profile.goal.toLowerCase().includes('alem')) ? 'de' :
           (profile.goal && profile.goal.toLowerCase().includes('fran')) ? 'fr' : 'en';
-        systemPrompt = getTalkMePrompt(lang, profile.level || 'A1');
+        systemPrompt = getSpeakGoPrompt(lang, profile.level || 'A1');
       }
     }
 
@@ -557,7 +487,7 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
         Example: { "dialogue": "Bonjour! Un café?", "feedback": "Dijiste 'un cafe', recuerda el acento." }
         RETURN ONLY JSON.`;
 
-    const combinedPrompt = systemPrompt; // getTalkMePrompt now includes JSON instructions
+    const combinedPrompt = systemPrompt; // getSpeakGoPrompt now includes JSON instructions
 
     // Call Router
     const aiRawResponse = await generateResponse(userText, combinedPrompt, []);

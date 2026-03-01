@@ -1,17 +1,16 @@
 import axios from 'axios';
 
 const getBaseUrl = () => {
-    // Priority 1: Environment variable
+    // Use environment variable for production, fallback to Render URL or localhost
     if (import.meta.env.VITE_API_URL) {
         return import.meta.env.VITE_API_URL;
     }
 
-    // Priority 2: Hardcoded Production URL (Fallback when deployed but no env var is set)
     if (import.meta.env.PROD) {
         return 'https://mvp-idiomas-server.onrender.com/api';
     }
 
-    // Priority 3: Local Dev
+    // Localhost fallback
     return 'http://localhost:3000/api';
 };
 

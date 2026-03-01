@@ -1,12 +1,12 @@
-// aiRouter.js for TalkMe (CommonJS) - V6.0 PERSISTENT MEMORY
+// aiRouter.js for SpeakGo (CommonJS) - V6.0 PERSISTENT MEMORY
 const axios = require('axios');
 const googleTTS = require('google-tts-api');
 require('dotenv').config();
 
 // --- Configuration & Branding ---
-const BRAND_NAME = "ALEX";
+const BRAND_NAME = "SPEAKGO";
 const { MIGRATION_SYSTEM_PROMPT_V1 } = require('../config/migrationPrompt');
-const PERSONAS_ALEX = require('../config/personas');
+const PERSONAS_SPEAKGO = require('../config/personas');
 
 // --- Supabase for Persistent Memory ---
 const { createClient } = require('@supabase/supabase-js');
@@ -20,16 +20,8 @@ else console.warn('⚠️ [aiRouter] No Supabase - using RAM-only memory');
 // --- Robust Key Cleaning ---
 const cleanKey = (k) => (k || "").trim().replace(/[\r\n\t]/g, '').replace(/\s/g, '');
 
-let GENAI_API_KEY = cleanKey(process.env.GEMINI_API_KEY);
-if (!GENAI_API_KEY || GENAI_API_KEY.startsWith('AIzaSyBmMz')) {
-    GENAI_API_KEY = "AIzaSyCc9OE" + "mS5JITiWtK3NU3N4" + "-lLCMo9KJW6U";
-}
-
-let OPENAI_API_KEY = cleanKey(process.env.OPENAI_API_KEY);
-if (!OPENAI_API_KEY || OPENAI_API_KEY.endsWith('hQAA')) {
-    OPENAI_API_KEY = "sk-proj-7vy9f3-B_N8J_gHF" + "FGgW4tqirx68AmDwJgdwLWQcHBj06" + "KwsohLm7Kwxe07kaP94Utea3C" + "krW9T3BlbkFJp1iDgQ71KlJBpxjl_stu5Uy" + "s_A3rUJlUBxtySxLB0C85qxOiuuAwMCxMg7wW_qYlJp8EuVjf8A";
-}
-
+const GENAI_API_KEY = cleanKey(process.env.GEMINI_API_KEY);
+const OPENAI_API_KEY = cleanKey(process.env.OPENAI_API_KEY);
 const DEEPSEEK_API_KEY = cleanKey(process.env.DEEPSEEK_API_KEY);
 const ELEVENLABS_API_KEY = cleanKey(process.env.ELEVENLABS_API_KEY || process.env.ELEVENLAB_API_KEY);
 
@@ -99,7 +91,7 @@ async function loadHistoryFromDB(userId, limit = 20) {
     }
 }
 
-async function saveMessageToDB(userId, role, content, provider = 'unknown', persona = 'TALKME') {
+async function saveMessageToDB(userId, role, content, provider = 'unknown', persona = 'SPEAKGO') {
     if (!supabaseAdmin || !userId || userId === 'default_user') return;
     try {
         await supabaseAdmin.from('conversations').insert({
@@ -116,23 +108,23 @@ async function saveMessageToDB(userId, role, content, provider = 'unknown', pers
 
 // --- Main Text Generation Function ---
 
-async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATION', history = [], userId = 'default_user') {
+async function generateResponse(userMessage, personaKeyOrPrompt = 'SPEAKGO_MIGRATION', history = [], userId = 'default_user') {
     const normalizedUserMessage = userMessage || "";
     extractUserState(normalizedUserMessage, userId);
 
     let systemPrompt = "";
-    let personaNameForDB = "TALKME";
+    let personaNameForDB = "SPEAKGO";
 
-    if (PERSONAS_ALEX[personaKeyOrPrompt]) {
-        systemPrompt = PERSONAS_ALEX[personaKeyOrPrompt].systemPrompt;
+    if (PERSONAS_SPEAKGO[personaKeyOrPrompt]) {
+        systemPrompt = PERSONAS_SPEAKGO[personaKeyOrPrompt].systemPrompt;
         personaNameForDB = personaKeyOrPrompt;
-    } else if (personaKeyOrPrompt === 'ALEX_MIGRATION') {
+    } else if (personaKeyOrPrompt === 'SPEAKGO_MIGRATION') {
         systemPrompt = MIGRATION_SYSTEM_PROMPT_V1;
-        personaNameForDB = 'ALEX_MIGRATION';
+        personaNameForDB = 'SPEAKGO_MIGRATION';
     } else {
-        // Fallback: It's a raw custom prompt (e.g., from TalkMe)
+        // Fallback: It's a raw custom prompt (e.g., from SpeakGo)
         systemPrompt = personaKeyOrPrompt;
-        personaNameForDB = 'TALKME';
+        personaNameForDB = 'SPEAKGO';
     }
 
     // Append memory context
@@ -140,7 +132,7 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 
     let responseText = null;
 
-    // Ordered Providers: Gemini -> OpenAI -> DeepSeek -> (Future: Alex-Brain)
+    // Ordered Providers: Gemini -> OpenAI -> DeepSeek -> (Future: SpeakGo-Brain)
 
     // 1. Gemini
     try {
@@ -169,9 +161,9 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
         }
     }
 
-    // Final Normalization (Ensure ALEX branding)
+    // Final Normalization (Ensure SPEAKGO branding)
     if (responseText) {
-        responseText = responseText.replace(/Alexandra/g, BRAND_NAME);
+        responseText = responseText.replace(/SpeakGo/g, BRAND_NAME);
     }
 
     // Update RAM Memory
@@ -193,7 +185,7 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 async function callGeminiStable(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
     const apiVersions = ['v1beta', 'v1'];
-    const modelNames = ["gemini-2.5-flash", "gemini-1.5-flash"];
+    const modelNames = ["gemini-1.5-flash", "gemini-1.5-flash-latest"];
 
     for (const ver of apiVersions) {
         for (const modelName of modelNames) {
@@ -311,7 +303,7 @@ function formatHistoryForREST(history) {
 
 function getProviderConfigStatus() {
     return {
-        order: ["gemini-flash", "openai-mini", "deepseek", "alex-brain"],
+        order: ["gemini-flash", "openai-mini", "deepseek", "speakgo-brain"],
         configured: {
             gemini: !!GENAI_API_KEY,
             openai: !!OPENAI_API_KEY,
@@ -331,11 +323,11 @@ function getUserState(userId) {
     return conversationState.get(userId) || {};
 }
 
-// --- TalkMe Specific Prompts (Powered by Teaching Constitution) ---
+// --- SpeakGo Specific Prompts (Powered by Teaching Constitution) ---
 
 const { buildTeachingSystemPrompt } = require('../config/teachingPrompt');
 
-function getTalkMePrompt(language = 'en', level = 'A1') {
+function getSpeakGoPrompt(language = 'en', level = 'A1') {
     return buildTeachingSystemPrompt(language, level);
 }
 
@@ -355,9 +347,9 @@ function cleanTextForTTS(text) {
 module.exports = {
     generateResponse,
     generateAudio,
-    getTalkMePrompt,
+    getSpeakGoPrompt,
     cleanTextForTTS,
     getProviderConfigStatus,
     getUserState,
-    PERSONAS: PERSONAS_ALEX
+    PERSONAS: PERSONAS_SPEAKGO
 };
