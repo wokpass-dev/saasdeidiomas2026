@@ -51,10 +51,12 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabaseAdmin = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
+const cleanKey = (k) => (k || "").trim().replace(/[\r\n\t]/g, '').replace(/\s/g, '');
+
 const OpenAI = require('openai');
 // Fix 401: Trim API Key
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.trim() : '',
+  apiKey: cleanKey(process.env.OPENAI_API_KEY),
 });
 
 app.use(express.urlencoded({ extended: true }));
