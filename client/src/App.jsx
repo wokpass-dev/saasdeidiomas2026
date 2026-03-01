@@ -125,8 +125,8 @@ function App() {
 
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/preparacion" element={<ProgramDetail />} />
-          <Route path="/home" element={<NewHomePage />} />
-          <Route path="/" element={<NewHomePage />} />
+          <Route path="/home" element={<LandingPage />} />
+          <Route path="/" element={<LandingPage />} />
         </Routes>
       </div>
     </Router>
