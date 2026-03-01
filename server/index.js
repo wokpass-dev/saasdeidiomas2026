@@ -465,9 +465,9 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
     let userText = '';
 
     try {
-      console.log('🎤 Intentando STT con Gemini 1.5 Flash...');
+      console.log('🎤 Intentando STT con Gemini 2.5 Flash...');
       const genAI = new GoogleGenerativeAI(cleanKey(process.env.GEMINI_API_KEY));
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       const audioPart = {
         inlineData: {

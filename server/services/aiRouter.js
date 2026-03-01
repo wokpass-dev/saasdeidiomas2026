@@ -185,7 +185,7 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'ALEX_MIGRATIO
 async function callGeminiStable(message, systemPrompt, history) {
     if (!GENAI_API_KEY) return null;
     const apiVersions = ['v1beta', 'v1'];
-    const modelNames = ["gemini-1.5-flash", "gemini-1.5-flash-latest"];
+    const modelNames = ["gemini-2.5-flash", "gemini-1.5-flash"];
 
     for (const ver of apiVersions) {
         for (const modelName of modelNames) {
