@@ -95,64 +95,33 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('/api/debug-config', (req, res) => {
-  res.json({
-    has_openai: !!process.env.OPENAI_API_KEY,
-    has_supabase_url: !!process.env.SUPABASE_URL,
-    has_service_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    has_anon_key: !!process.env.SUPABASE_ANON_KEY,
-    supabase_admin_ready: !!supabaseAdmin,
-    env_port: process.env.PORT
-  });
-});
+// --- Payment Webhook Placeholder ---
+// This endpoint receives successful payment events (e.g., from Stripe or Paddle)
+app.post('/api/webhooks/payment', async (req, res) => {
+  // TODO: Add Signature Verification (Stripe/Paddle sec)
 
-app.get('/api/debug/keys', async (req, res) => {
-  const results = {
-    openai: 'PENDING',
-    elevenlabs: 'PENDING'
-  };
+  const { eventType, userId, planId, status } = req.body;
 
-  // 1. Test OpenAI
-  const openaiKey = process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.trim() : '';
-  const openaiKeyHint = openaiKey ? `${openaiKey.substring(0, 4)}...` : 'MISSING';
+  if (eventType === 'payment_success' && status === 'succeeded') {
+    if (!supabaseAdmin) return res.status(500).json({ error: 'DB not connected' });
 
-  try {
-    await openai.models.list();
-    results.openai = `OK (Key: ${openaiKeyHint})`;
-  } catch (e) {
-    results.openai = `FAIL: ${e.response ? e.response.status : e.message} (Key: ${openaiKeyHint})`;
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('profiles')
+        .update({ is_premium: true }) // Activate premium
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      console.log(`✅ Webhook: Premium activated for user ${userId}`);
+      return res.status(200).json({ received: true, premiumAction: 'activated' });
+    } catch (err) {
+      console.error('Webhook Update Error:', err);
+      return res.status(500).json({ error: 'Failed to update user profile' });
+    }
   }
 
-  // 2. Test ElevenLabs (Real generation attempt)
-  const elevenKey = process.env.ELEVENLABS_KEY_NEW
-    ? process.env.ELEVENLABS_KEY_NEW.trim()
-    : (process.env.ELEVENLABS_API_KEY ? process.env.ELEVENLABS_API_KEY.trim() : '');
-  const elevenKeyHint = elevenKey ? `${elevenKey.substring(0, 4)}...` : 'MISSING';
-  const voiceId = "21m00Tcm4TlvDq8ikWAM"; // Rachel
-
-  try {
-    const ttsResponse = await axios.post(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-      {
-        text: "System check okay.",
-        model_id: "eleven_monolingual_v1",
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-      },
-      {
-        headers: {
-          'xi-api-key': elevenKey,
-          'Content-Type': 'application/json'
-        },
-        responseType: 'arraybuffer'
-      }
-    );
-    results.elevenlabs = `OK (Key: ${elevenKeyHint}) - Audio Generated (${ttsResponse.data.length} bytes)`;
-  } catch (e) {
-    const errorDetail = e.response && e.response.data ? Buffer.from(e.response.data).toString() : e.message;
-    results.elevenlabs = `FAIL: ${e.response ? e.response.status : 'ERR'} (Key: ${elevenKeyHint}) - Detail: ${errorDetail}`;
-  }
-
-  res.json(results);
+  res.status(200).json({ received: true });
 });
 
 app.get('/api/admin/users', async (req, res) => {
