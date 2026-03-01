@@ -444,8 +444,8 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
 
 
 
-    // 1. STT: Usamos OpenAI Whisper para transcribir (más estable que Gemini)
-    currentStage = 'STT (Whisper)';
+    // 1. STT: Usamos Gemini 1.5 Flash para transcribir
+    currentStage = 'STT (Gemini Flash)';
 
     // Debug: Ver qué archivo recibimos
     console.log('📁 Archivo recibido:', {
@@ -455,30 +455,33 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
       path: audioFile.path
     });
 
-    // FIX: Multer guarda archivos SIN extensión. Whisper necesita la extensión .webm
-    // para detectar el formato correctamente.
     const originalPath = audioFile.path;
-    const newPath = originalPath + '.webm';
 
-    console.log('🔄 Renombrando archivo:', originalPath, '→', newPath);
-    fs.renameSync(originalPath, newPath);
-
-    console.log('🎤 Transcribiendo audio con OpenAI Whisper...');
+    console.log('🎤 Transcribiendo audio con Gemini 1.5 Flash...');
 
     let userText = ''; // Declarar fuera del try
 
     try {
-      const transcription = await openai.audio.transcriptions.create({
-        file: fs.createReadStream(newPath),
-        model: 'whisper-1',
-        language: 'en', // Puedes cambiar según el idioma del usuario
-      });
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-      userText = transcription.text.trim();
-      console.log('✅ Whisper STT exitoso:', userText);
+      const audioPart = {
+        inlineData: {
+          data: fs.readFileSync(originalPath).toString("base64"),
+          mimeType: audioFile.mimetype || 'audio/webm'
+        },
+      };
 
-      // Limpiar el archivo renombrado
-      cleanup(newPath);
+      const result = await model.generateContent([
+        "Transcribe this audio precisely in the language spoken. Output ONLY the text spoken, nothing else. If it is completely silent, output nothing.",
+        audioPart
+      ]);
+
+      userText = result.response.text().trim();
+      console.log('✅ Gemini STT exitoso:', userText);
+
+      // Limpiar el archivo original
+      cleanup(originalPath);
 
       if (!userText) {
         return res.json({
@@ -488,11 +491,11 @@ app.post('/api/speak', upload.single('audio'), async (req, res) => {
           audioBase64: null
         });
       }
-    } catch (whisperError) {
-      console.error('❌ Error en Whisper STT:', whisperError.message);
+    } catch (sttError) {
+      console.error('❌ Error en Gemini STT:', sttError.message);
       // Limpiar archivo en caso de error
-      if (fs.existsSync(newPath)) cleanup(newPath);
-      throw whisperError; // Re-lanzar para que lo maneje el catch principal
+      if (fs.existsSync(originalPath)) cleanup(originalPath);
+      throw sttError; // Re-lanzar para que lo maneje el catch principal
     }
 
     // 2. Chat: Use aiRouter (Gemini Flash)
