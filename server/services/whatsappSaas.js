@@ -5,9 +5,12 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 const fs = require('fs');
 const OpenAI = require('openai');
-const copperService = require('./copperService'); // Import Copper CRM
 const { generateResponse, generateAudio } = require('./aiRouter');
 
+const { createClient } = require('@supabase/supabase-js');
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseAdmin = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 // Environment / Constants
 const sessionsDir = 'sessions';
@@ -146,10 +149,17 @@ async function handleCloudMessage(message) {
 
     console.log(`📩 [API: ${from}] Msg: ${text}`);
 
-    // 1. CRM Sync (API Only)
-    if (config.crmEnabled) {
-        // Run in background
-        copperService.syncUser(from, name, null).catch(err => console.error('CRM Sync Fail:', err));
+    // 1. CRM Sync (Supabase)
+    if (config.crmEnabled && supabaseAdmin) {
+        // Upsert user into saas_chats
+        supabaseAdmin.from('saas_chats').upsert({
+            user_phone: from,
+            client_id: '00000000-0000-0000-0000-000000000000', // Default client ID for MVP, modify in production
+            last_message_at: new Date().toISOString(),
+            metadata: { name }
+        }, { onConflict: 'client_id,user_phone' })
+            .then(({ error }) => { if (error) console.error('Supabase CRM Sync Fail:', error); })
+            .catch(err => console.error('Supabase CRM Sync Exception:', err));
     }
 
     // 2. Generate Reply
@@ -352,5 +362,45 @@ router.post('/webhook', async (req, res) => {
         res.sendStatus(404);
     }
 });
+
+// --- 🎯 PROACTIVE MESSAGING EXPORT ---
+// Export a function that the ProactiveEngine can use to send messages directly from the server.
+router.sendProactiveMessage = async (toPhone, text, instanceId = null) => {
+    try {
+        if (instanceId && activeSessions.has(instanceId)) {
+            // Send via Baileys QR
+            const sock = activeSessions.get(instanceId);
+            const jid = toPhone.includes('@s.whatsapp.net') ? toPhone : `${toPhone}@s.whatsapp.net`;
+            await sock.sendMessage(jid, { text });
+            console.log(`📤 Proactive QR Sent to ${toPhone}`);
+            return true;
+        } else {
+            // Send via Cloud API (Default for SaaS)
+            const axios = require('axios');
+            const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+            const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+
+            if (!phoneNumberId || !accessToken) {
+                throw new Error("Missing WhatsApp API Credentials");
+            }
+
+            await axios.post(
+                `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+                {
+                    messaging_product: 'whatsapp',
+                    to: toPhone,
+                    type: 'text',
+                    text: { body: text }
+                },
+                { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+            );
+            console.log(`📤 Proactive Cloud API Sent to ${toPhone}`);
+            return true;
+        }
+    } catch (err) {
+        console.error(`❌ Proactive Message Error (${toPhone}):`, err.response?.data || err.message);
+        return false;
+    }
+};
 
 module.exports = router;

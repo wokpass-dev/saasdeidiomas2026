@@ -46,7 +46,7 @@ const supabaseAdmin = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, s
 
 // --- Stripe Payment Webhook ---
 // Must be registered BEFORE express.json() to preserve raw body!
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
 
 app.post('/api/webhooks/payment', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -629,6 +629,10 @@ app.use((err, req, res, next) => {
   console.error('Unhandled Server Error:', err);
   res.status(500).json({ error: 'Internal Server Error', details: err.message });
 });
+
+// Initialize Proactive Trigger Engine 
+const proactiveEngine = require('./services/proactiveEngine');
+proactiveEngine.start();
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
