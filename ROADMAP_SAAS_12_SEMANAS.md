@@ -39,12 +39,12 @@ Este documento detalla el plan estratégico para transformar SpeakGo (anteriorme
 - **White-label:** Personalización básica (logo, colores, nombre del bot).
 - **KPI Meta:** 1 piloto B2B activo.
 
-### Fase 4: Canal WhatsApp (Semanas 8–9)
-**Objetivo:** WhatsApp como canal de adquisición y retención.
-- **Conector Estable:** Mapeo de `instance_id` y `api_key` por cliente.
-- **Handoff:** Lógica de transferencia Bot/Humano.
-- **Campañas:** Recordatorios de práctica y reactivación automática.
-- **KPI Meta:** Retención semanal en el canal.
+### Fase 4: Aplicación Móvil Nativa (Semanas 8–9)
+**Objetivo:** Expansión multiplataforma y retención vía notificaciones push.
+- **Arquitectura:** Empaquetado nativo del frontend usando tecnologías multiplataforma (p. ej. Capacitor / Expo / PWA).
+- **Notificaciones:** Integración de Firebase o similar para Notificaciones Push (sustituyendo los pings por WhatsApp).
+- **Hardware Integrado:** Optimización nativa del acceso al micrófono del dispositivo para latencia casi 0.
+- **KPI Meta:** Ratio de descargas/DAUs, retención del 30% en día 7 mediante notificaciones push.
 
 ### Fase 5: Confiabilidad y Escalado (Semanas 10–12)
 **Objetivo:** Operar con estándares de alta disponibilidad.
@@ -61,7 +61,7 @@ Este documento detalla el plan estratégico para transformar SpeakGo (anteriorme
 2. **Plan Limits Middleware:** Control server-side basado en el plan del usuario.
 3. **Usage Dashboard:** Vista de "Mi plan y consumo".
 4. **Multi-tenant RLS:** Seguridad a nivel de base de datos para B2B.
-5. **WhatsApp Connector:** Integración productiva con Evolution API.
+5. **App Móvil:** Configuración y build para Android/iOS (Capacitor/PWA) y setup de Notificaciones Push.
 6. **Observabilidad:** Suite de tests críticos y monitoreo.
 
 ---
