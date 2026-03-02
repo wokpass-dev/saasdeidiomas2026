@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SpeakGo</string>
+    <string name="title_activity_main">SpeakGo</string>
+    <string name="package_name">com.puentesglobales.speakgo</string>
+    <string name="custom_url_scheme">com.puentesglobales.speakgo</string>
+</resources>

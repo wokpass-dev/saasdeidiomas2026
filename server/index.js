@@ -31,7 +31,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const corsOptions = {
-  origin: '*',
+  origin: function (origin, callback) {
+    // Allow all origins including Capacitor native schemas
+    if (!origin || origin === 'capacitor://localhost' || origin === 'http://localhost' || origin.includes('http://localhost:')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Permite todo para facilitar dev/mobile
+    }
+  },
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
