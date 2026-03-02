@@ -83,6 +83,64 @@ app.post('/api/webhooks/payment', express.raw({ type: 'application/json' }), asy
 
 app.use(express.json());
 
+// --- SaaS Endpoints ---
+
+// Get current user limits and plan info
+app.get('/api/me', async (req, res) => {
+  const userId = req.query.userId;
+  if (!userId || !supabaseAdmin) return res.status(400).json({ error: 'Missing userId or DB not connected' });
+
+  try {
+    const { data: profile, error } = await supabaseAdmin.from('profiles').select('*').eq('id', userId).single();
+    if (error && error.code !== 'PGRST116') throw error; // PGRST116 is No Rows Found
+
+    if (!profile) return res.json({ usage_count: 0, is_premium: false, plan: 'Free' });
+
+    res.json({
+      usage_count: profile.usage_count,
+      is_premium: profile.is_premium,
+      plan: profile.is_premium ? 'Premium' : 'Free'
+    });
+  } catch (err) {
+    console.error('Error in /api/me:', err);
+    res.status(500).json({ error: 'Failed to fetch user profile' });
+  }
+});
+
+// Create Stripe Checkout Session
+app.post('/api/checkout', async (req, res) => {
+  const { userId, planId, successUrl, cancelUrl } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [
+        {
+          // In production, this would be looked up dynamically via products
+          price_data: {
+            currency: 'usd',
+            product_data: { name: 'SpeakGo Premium Subscription' },
+            unit_amount: 999, // $9.99/mo
+            recurring: { interval: 'month' }
+          },
+          quantity: 1,
+        },
+      ],
+      client_reference_id: userId,
+      success_url: successUrl || 'http://localhost:5173/?payment=success',
+      cancel_url: cancelUrl || 'http://localhost:5173/?payment=cancel',
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('Stripe Checkout Error:', err);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();

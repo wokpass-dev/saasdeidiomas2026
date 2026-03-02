@@ -21,6 +21,15 @@ const getPlanConfig = (profile) => {
 
     if (!profile) return config;
 
+    // Apply Premium / Freemium Limits
+    if (profile.is_premium) {
+        config.limits.dailyMessages = 1000;
+        config.limits.features = ['chat', 'pronunciation', 'premium_scenarios'];
+    } else {
+        config.limits.dailyMessages = 10;
+        config.limits.features = ['chat'];
+    }
+
     // 1. Determine Teaching Style based on Goal
     let teachingFocus = '';
     switch (profile.goal) {
