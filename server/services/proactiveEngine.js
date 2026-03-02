@@ -26,66 +26,49 @@ class ProactiveEngine {
     }
 
     async runPings() {
-        console.log('🔍 [ProactiveEngine] Scanning database for students to ping...');
+        console.log('🔍 [ProactiveEngine] Scanning database for mobile users to ping (Push FCM)...');
         try {
-            // Check users in `saas_chats` that haven't sent a message in >= 24 hours
             const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-            const { data: inactiveChats, error } = await supabaseAdmin
-                .from('saas_chats')
-                .select('user_phone, last_message_at, metadata, client_id')
-                .lt('last_message_at', twentyFourHoursAgo)
+            // Check users in `profiles` that haven't been active in >= 24 hours and HAVE an fcm_token
+            const { data: inactiveUsers, error } = await supabaseAdmin
+                .from('profiles')
+                .select('id, last_active, fcm_token, level, goal')
+                .not('fcm_token', 'is', null)
+                .lt('last_active', twentyFourHoursAgo)
                 .limit(50); // Batch
 
             if (error) {
-                console.error("Supabase Error querying missing students:", error);
+                console.error("Supabase Error querying inactive students:", error);
                 return;
             }
 
-            if (!inactiveChats || inactiveChats.length === 0) {
-                console.log('✅ [ProactiveEngine] No students need a push right now.');
+            if (!inactiveUsers || inactiveUsers.length === 0) {
+                console.log('✅ [ProactiveEngine] No mobile students need a push right now.');
                 return;
             }
 
-            for (const chat of inactiveChats) {
-                // If pinged recently (within last 3 days), do NOT ping again
-                const lastPinged = chat.metadata?.pinged_at;
-                if (lastPinged && new Date(lastPinged) > new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)) {
-                    continue;
-                }
-                await this.pingStudent(chat);
+            for (const user of inactiveUsers) {
+                await this.pingStudent(user);
             }
 
         } catch (err) {
-            console.error('❌ [ProactiveEngine] Run Failed:', err.message);
+            console.error('❌ [ProactiveEngine] FCM Run Failed:', err.message);
         }
     }
 
-    async pingStudent(chat) {
-        const { user_phone, metadata, client_id } = chat;
-        console.log(`📡 [ProactiveEngine] Ping targeting ${user_phone}`);
+    async pingStudent(user) {
+        const { id, fcm_token, level } = user;
+        console.log(`📡 [ProactiveEngine] Sending FCM Push Notification to user ${id}`);
 
         try {
-            // Pull learning progress (simulate joining profiles)
-            let currentLevel = 'A1';
+            let currentLevel = level || 'A1';
 
-            // Try matching user phone with profile
-            const { data: profile } = await supabaseAdmin
-                .from('profiles')
-                .select('level, goal')
-                .eq('id', user_phone)
-                .single();
-
-            if (profile) {
-                currentLevel = profile.level || 'A1';
-            }
-
-            // Also check `student_progress` to see where they left off
-            // E.g. find an incomplete scenario or the last one completed
+            // Check `student_progress` to see where they left off
             const { data: progress } = await supabaseAdmin
                 .from('student_progress')
                 .select('scenario_id, status')
-                .eq('user_id', user_phone)
+                .eq('user_id', id)
                 .order('updated_at', { ascending: false })
                 .limit(1)
                 .single();
@@ -97,40 +80,58 @@ class ProactiveEngine {
                 specificModuleContext = `Felicítalo por haber completado "${progress.scenario_id}" recientemente y pregúntale si está listo para el siguiente reto.`;
             }
 
-            // Create a specialized system prompt for the Engine to generate a natural re-engagement
+            // Create a specialized system prompt for the Engine to generate a short Push Notification
             const enginePrompt = `
 Eres el CRM y Motor Proactivo de la escuela de idiomas SpeakGo (Tutor de Inteligencia Artificial).
-El alumno (Nivel estimado '${currentLevel}') lleva 24+ horas inactivo.
+El alumno (Nivel estimado '${currentLevel}') no ha abierto la app en 24+ horas.
 INSTRUCCIÓN DEL ESTADO: ${specificModuleContext || "Aún no ha retomado su plan de estudios diario."}
 
 TU TAREA:
-Escribe UN (1) mensaje CORTO para WhatsApp abordándolo proactivamente y motivándolo a seguir estudiando HOY.
-- Empieza con un saludo cordial.
-- Menciona su nivel y/o estado de lección (según la instrucción del estado).
-- Cierra el mensaje invitándolo a que te envíe un mensaje de voz o texto para comenzar su clase ahora mismo.
-- Tono motivacional pero ejecutivo. Máximo 2 párrafos de 2 líneas c/u.
+Escribe UNA (1) breve oración de máximo de 60 caracteres diseñada EXCLUSIVAMENTE para ser una Notificación Push en la pantalla bloqueada del iPhone o Android del alumno.
+- Corto, amigable y que incite el click.
+- Usa Emojis.
             `;
 
-            // We generate the message via AI Router
-            const triggerMessage = await generateResponse("Hola, necesito que escribas el ping motivacional ahora.", enginePrompt, []);
+            // We generate the push body via AI Router
+            let triggerMessage = await generateResponse("Escribe la notificación PUSH ahora.", enginePrompt, []);
+            triggerMessage = triggerMessage.replace(/["']/g, ""); // Clean up quotes
 
             if (!triggerMessage || triggerMessage.length < 5) return;
 
-            // Dispatch via whatsappSaas
-            const sent = await whatsappSaasRouter.sendProactiveMessage(user_phone, triggerMessage);
+            // Enviar la señal por Firebase HTTP v1 o Legacy (Placeholder implementation)
+            const firebaseKey = process.env.FIREBASE_SERVER_KEY;
+            if (!firebaseKey) {
+                console.log(`🔔 [FCM SIMULATION] A user ${id} con Token [${fcm_token.substring(0, 8)}...]`);
+                console.log(`📱 Push Title: ¡Te extrañamos en SpeakGo!`);
+                console.log(`📱 Push Body: ${triggerMessage}`);
 
-            if (sent) {
-                // Update metadata so we don't spam
-                const updatedMetadata = { ...metadata, pinged_at: new Date().toISOString() };
-                await supabaseAdmin
-                    .from('saas_chats')
-                    .update({ metadata: updatedMetadata }) // don't update last_message_at, otherwise it looks like active user
-                    .eq('user_phone', user_phone)
-                    .eq('client_id', client_id);
+                // Update last_active so we don't spam them every 6 hours
+                await supabaseAdmin.from('profiles').update({ last_active: new Date().toISOString() }).eq('id', id);
+                return;
+            }
+
+            // Integración real con FCM (Cloud Messaging)
+            const axios = require('axios');
+            try {
+                await axios.post('https://fcm.googleapis.com/fcm/send', {
+                    to: fcm_token,
+                    notification: {
+                        title: '¡Te extrañamos en SpeakGo! 🚀',
+                        body: triggerMessage,
+                        sound: "default"
+                    }
+                }, {
+                    headers: { 'Authorization': `key=${firebaseKey}` }
+                });
+                console.log(`✅ [FCM] Push Succesfully Sent to ${id}`);
+                // Update last_active to avoid loop spam
+                await supabaseAdmin.from('profiles').update({ last_active: new Date().toISOString() }).eq('id', id);
+            } catch (fcmError) {
+                console.error(`❌ [FCM API] Failed to push to ${id}:`, fcmError.message);
             }
 
         } catch (err) {
-            console.error(`⚠️ [ProactiveEngine] Failed to ping ${user_phone}:`, err.message);
+            console.error(`⚠️ [ProactiveEngine] Failed to ping ${id}:`, err.message);
         }
     }
 }

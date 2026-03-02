@@ -6,6 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AudioRecorder from './AudioRecorder';
 import FeedbackModal from './FeedbackModal';
 import PricingModal from './PricingModal';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 export default function ChatInterface({ session }) {
     const [messages, setMessages] = useState(() => {
@@ -61,6 +63,47 @@ export default function ChatInterface({ session }) {
         };
         loadData();
     }, [session]);
+
+    // Push Notifications Registration
+    useEffect(() => {
+        const registerPush = async () => {
+            if (!session?.user || !Capacitor.isNativePlatform()) return;
+
+            try {
+                let permStatus = await PushNotifications.checkPermissions();
+                if (permStatus.receive === 'prompt') {
+                    permStatus = await PushNotifications.requestPermissions();
+                }
+
+                if (permStatus.receive !== 'granted') {
+                    console.log('User denied push notifications');
+                    return;
+                }
+
+                await PushNotifications.register();
+
+                PushNotifications.addListener('registration', async (token) => {
+                    console.log('Mobile Push Token (FCM):', token.value);
+                    // Update the user's profile with the FCM token.
+                    // This allows Proactive Engine to ping Firebase for this specific user.
+                    const { error } = await supabase
+                        .from('profiles')
+                        .update({ fcm_token: token.value })
+                        .eq('id', session.user.id);
+
+                    if (error) console.error("Error saving FCM token:", error);
+                });
+
+                PushNotifications.addListener('pushNotificationReceived', (notification) => {
+                    console.log('Push received:', notification);
+                });
+            } catch (error) {
+                console.error('Failed to configure push notifications', error);
+            }
+        };
+
+        registerPush();
+    }, [session?.user]);
 
     const markAsComplete = async () => {
         if (!selectedScenario || !session?.user) return;

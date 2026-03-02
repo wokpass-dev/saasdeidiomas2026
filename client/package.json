@@ -12,6 +12,7 @@
   "dependencies": {
     "@capacitor/android": "^8.1.0",
     "@capacitor/ios": "^8.1.0",
+    "@capacitor/push-notifications": "^8.0.1",
     "@supabase/supabase-js": "^2.89.0",
     "axios": "^1.13.2",
     "capacitor-voice-recorder": "^7.0.6",
