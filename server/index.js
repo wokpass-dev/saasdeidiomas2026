@@ -90,6 +90,20 @@ app.post('/api/webhooks/payment', express.raw({ type: 'application/json' }), asy
 
 app.use(express.json());
 
+// --- Observability (Phase 5) ---
+const pinoHttp = require('pino-http')({
+  logger: require('pino')({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' }),
+  customLogLevel: function (req, res, err) {
+    if (res.statusCode >= 400 && res.statusCode < 500) return 'warn';
+    if (res.statusCode >= 500 || err) return 'error';
+    return 'info';
+  },
+  autoLogging: {
+    ignore: (req) => req.url === '/health' // don't spam healthchecks
+  }
+});
+app.use(pinoHttp);
+
 // --- SaaS Endpoints ---
 
 // Get current user limits and plan info

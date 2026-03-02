@@ -36,12 +36,21 @@ const conversationMemory = new Map();
 const conversationState = new Map();
 
 // --- Utilities ---
+const crypto = require('crypto');
 
 function withTimeout(promise, ms, name = "Provider") {
     const timeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`${name} Timeout after ${ms}ms`)), ms)
     );
     return Promise.race([promise, timeout]);
+}
+
+// Active Simple Cache for Cost Control (Phase 5)
+const promptCache = new Map();
+const MAX_CACHE_SIZE = 500;
+
+function getCacheKey(system, userMsg) {
+    return crypto.createHash('md5').update(`${system}|${userMsg}`).digest('hex');
 }
 
 function extractUserState(message, userId) {
@@ -130,6 +139,16 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'SPEAKGO_MIGRA
     // Append memory context
     systemPrompt += buildMemoryContext(userId);
 
+    // Phase 5: Cost Reduction Cache Check
+    const cacheKey = getCacheKey(systemPrompt, normalizedUserMessage);
+    if (promptCache.has(cacheKey)) {
+        let cachedRes = promptCache.get(cacheKey);
+        console.log(`💵 [Cache Hit] Ahorrando requests API para: ${normalizedUserMessage.substring(0, 20)}...`);
+        // We still log history to RAM & DB but we skip Gemini/OpenAI
+        updateMemoryAndDB(userId, normalizedUserMessage, cachedRes, 'cache', personaNameForDB);
+        return cachedRes;
+    }
+
     let responseText = null;
 
     // Ordered Providers: Gemini -> OpenAI -> DeepSeek -> (Future: SpeakGo-Brain)
@@ -166,18 +185,29 @@ async function generateResponse(userMessage, personaKeyOrPrompt = 'SPEAKGO_MIGRA
         responseText = responseText.replace(/SpeakGo/g, BRAND_NAME);
     }
 
-    // Update RAM Memory
+    // Update RAM Memory & Cache
+    if (responseText) {
+        if (promptCache.size >= MAX_CACHE_SIZE) {
+            // Very simple LRU: delete first key
+            const firstKey = promptCache.keys().next().value;
+            promptCache.delete(firstKey);
+        }
+        promptCache.set(cacheKey, responseText);
+    }
+
+    updateMemoryAndDB(userId, normalizedUserMessage, responseText, responseText ? 'ai' : 'none', personaNameForDB);
+
+    return responseText || `Lo siento, soy ${BRAND_NAME} y estoy experimentando latencia. ¿Podrías repetirlo?`;
+}
+
+function updateMemoryAndDB(userId, userMessage, responseText, provider, persona) {
     const currentHist = conversationMemory.get(userId) || [];
-    currentHist.push({ role: 'user', content: normalizedUserMessage });
+    currentHist.push({ role: 'user', content: userMessage });
     if (responseText) currentHist.push({ role: 'assistant', content: responseText });
     conversationMemory.set(userId, currentHist.slice(-20)); // Keep last 20 in RAM
 
-    // Persist to Supabase (async, no await to avoid slowing response)
-    const usedProvider = responseText ? 'ai' : 'none';
-    saveMessageToDB(userId, 'user', normalizedUserMessage, 'user', personaNameForDB);
-    if (responseText) saveMessageToDB(userId, 'assistant', responseText, usedProvider, personaNameForDB);
-
-    return responseText || `Lo siento, soy ${BRAND_NAME} y estoy experimentando latencia. ¿Podrías repetirlo?`;
+    saveMessageToDB(userId, 'user', userMessage, 'user', persona);
+    if (responseText) saveMessageToDB(userId, 'assistant', responseText, provider, persona);
 }
 
 // --- Specific AI Implementations ---
