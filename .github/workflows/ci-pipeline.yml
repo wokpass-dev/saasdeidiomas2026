@@ -1,0 +1,40 @@
+name: SpeakGo SaaS CI/CD Security & Build Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - name: Checkout Code Repository
+      uses: actions/checkout@v4
+      
+    - name: Ensure Node.js Version ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        
+    - name: (Backend) Install Dependencies
+      working-directory: ./server
+      run: npm install
+      
+    - name: (Frontend - Hybrid App) Install Dependencies
+      working-directory: ./client
+      run: npm install
+      
+    - name: (Frontend - Hybrid App) Compile Dist / Vite Build
+      working-directory: ./client
+      run: npm run build
+      
+    - name: Security Check / Audit NPM Packages
+      run: |
+        cd server && npm audit --audit-level=high || true
+        cd ../client && npm audit --audit-level=high || true
