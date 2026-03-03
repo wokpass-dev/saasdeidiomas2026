@@ -1,7 +1,12 @@
 import axios from 'axios';
 
 const getBaseUrl = () => {
-    // FORCE HARDCODED URL FOR PRODUCTION TO AVOID ENV VAR ISSUES
+    // Si Vite y Render inyectan la variable dinámica automáticamente, la usamos.
+    if (import.meta.env.VITE_API_URL) {
+        return `https://${import.meta.env.VITE_API_URL}/api`;
+    }
+
+    // FORCE HARDCODED URL FOR PRODUCTION BACKUP
     if (import.meta.env.PROD) {
         return 'https://mvp-idiomas-server.onrender.com/api';
     }
