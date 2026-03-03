@@ -40,31 +40,20 @@ const LandingPage = () => {
                                 <Globe className="w-10 h-10 text-blue-400" />
                             </div>
                         </div>
-                        <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
-                            Emigrar con <span className="text-blue-400">confianza</span> es posible
+                        <h1 className="text-5xl md:text-7xl font-bold mb-4 tracking-tight">
+                            TALKME AI
                         </h1>
-                        <p className="text-xl md:text-2xl text-slate-300 font-light max-w-3xl mx-auto mb-10">
-                            No es improvisar, es planificar. Tu futuro en Europa comienza hoy.
+                        <p className="text-2xl md:text-4xl text-blue-400 font-light max-w-3xl mx-auto mb-10 uppercase tracking-widest">
+                            Escuela de Idiomas
                         </p>
 
-                        {/* HERO BUTTONS - JOB SEARCH PRIORITY */}
+                        {/* HERO BUTTONS */}
                         <div className="flex flex-col items-center gap-4">
-                            <a
-                                href="https://www.puentesglobales.com/index2.php"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="group relative inline-flex items-center justify-center gap-3 px-10 py-5 bg-white text-slate-900 hover:bg-blue-50 rounded-full font-black text-xl md:text-2xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] transform hover:scale-105"
-                            >
-                                <Briefcase className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
-                                <span>Empieza aquí tu búsqueda laboral</span>
-                            </a>
-                            <p className="text-sm text-slate-400 mb-4">Conecta con las mejores ofertas en Europa</p>
-
                             <Link
                                 to="/login"
-                                className="px-8 py-3 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 text-blue-300 rounded-full font-bold text-lg transition-all flex items-center justify-center gap-2 backdrop-blur-md"
+                                className="group relative inline-flex items-center justify-center gap-3 px-10 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full font-black text-xl md:text-2xl transition-all shadow-lg hover:shadow-blue-500/50 transform hover:scale-105"
                             >
-                                <Mic size={20} /> Probar Talkme Ahora
+                                <Mic size={28} /> Probar Talkme Ahora
                             </Link>
                         </div>
                     </motion.div>
