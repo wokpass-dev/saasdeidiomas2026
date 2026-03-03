@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import { Loader2 } from 'lucide-react';
-import { motion } from 'framer-motion'; // Added motion import
+import { Loader2, GraduationCap } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 
 export default function Login() {
     const [loading, setLoading] = useState(false);
@@ -73,7 +74,9 @@ export default function Login() {
         <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
             <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md border border-slate-100">
                 <div className="flex justify-center mb-6">
-                    <img src="/home/logo.jpg" alt="Puentes Globales" className="h-40 w-auto object-contain" />
+                    <div className="bg-gradient-to-tr from-cyan-500 to-blue-600 p-4 rounded-3xl shadow-lg">
+                        <GraduationCap className="h-16 w-16 text-white" />
+                    </div>
                 </div>
                 <h1 className="text-3xl font-extrabold text-slate-900 mb-2 text-center">
                     {isSignUp ? 'Crear Cuenta' : 'Bienvenido'}
@@ -169,6 +172,12 @@ export default function Login() {
                     >
                         {isSignUp ? 'Ingresa aquí' : 'Regístrate gratis'}
                     </button>
+                </div>
+
+                <div className="mt-6 flex justify-center">
+                    <Link to="/admin" className="text-xs text-slate-400 hover:text-cyan-500 transition-colors">
+                        Panel de Administración
+                    </Link>
                 </div>
             </div>
         </div>
