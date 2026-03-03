@@ -380,7 +380,7 @@ app.post('/api/profile', async (req, res) => {
     res.json({ success: true, message: 'Profile saved' });
   } catch (err) {
     console.error('Profile Save Error:', err);
-    res.status(500).json({ error: 'Failed to save profile' });
+    res.status(500).json({ error: 'Failed to save profile', details: err.message });
   }
 });
 
