@@ -369,10 +369,10 @@ app.post('/api/profile', async (req, res) => {
       .from('profiles')
       .upsert({
         id: userId,
-        goal,
-        level,
-        interests,
-        age,
+        goal: goal || 'General',
+        level: level || 'A1',
+        interests: interests || [],
+        age: age || null,
         onboarding_completed: true
       });
 
