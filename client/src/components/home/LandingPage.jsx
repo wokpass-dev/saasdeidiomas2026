@@ -36,7 +36,9 @@ const LandingPage = () => {
                 <div className="relative z-10 container mx-auto px-6 text-center">
                     <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
                         <div className="flex justify-center mb-6">
-                            <img src="/home/logo.jpg" alt="Puentes Globales Logo" className="w-24 h-24 object-contain" />
+                            <div className="w-20 h-20 bg-blue-600/20 backdrop-blur-sm rounded-full flex items-center justify-center border border-blue-400/30">
+                                <Globe className="w-10 h-10 text-blue-400" />
+                            </div>
                         </div>
                         <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
                             Emigrar con <span className="text-blue-400">confianza</span> es posible
@@ -47,20 +49,22 @@ const LandingPage = () => {
 
                         {/* HERO BUTTONS - JOB SEARCH PRIORITY */}
                         <div className="flex flex-col items-center gap-4">
-                            <Link
-                                to="/login"
+                            <a
+                                href="https://www.puentesglobales.com/index2.php"
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="group relative inline-flex items-center justify-center gap-3 px-10 py-5 bg-white text-slate-900 hover:bg-blue-50 rounded-full font-black text-xl md:text-2xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] transform hover:scale-105"
                             >
                                 <Briefcase className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
                                 <span>Empieza aquí tu búsqueda laboral</span>
-                            </Link>
+                            </a>
                             <p className="text-sm text-slate-400 mb-4">Conecta con las mejores ofertas en Europa</p>
 
                             <Link
                                 to="/login"
                                 className="px-8 py-3 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 text-blue-300 rounded-full font-bold text-lg transition-all flex items-center justify-center gap-2 backdrop-blur-md"
                             >
-                                <Mic size={20} /> Probar SpeakGo Ahora
+                                <Mic size={20} /> Probar Talkme Ahora
                             </Link>
                         </div>
                     </motion.div>
@@ -80,7 +84,7 @@ const LandingPage = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         {[
-                            { icon: <img src="/home/logo.jpg" className="w-8 h-8 object-contain" />, title: "Orientación Migratoria", desc: "Trámites simplificados." },
+                            { icon: <Globe />, title: "Orientación Migratoria", desc: "Trámites simplificados." },
                             { icon: <Briefcase />, title: "Inserción Laboral", desc: "Conexión con empresas." },
                             { icon: <Mic />, title: "Coaching de Idiomas", desc: "Domina el idioma con IA." },
                             { icon: <Star />, title: "Crecimiento Personal", desc: "Gestión de miedos." }
@@ -119,11 +123,11 @@ const LandingPage = () => {
                 </div>
             </section>
 
-            {/* 4. SPEAKGO SOLUTION (Text Only) */}
+            {/* 4. TALKME SOLUTION (Text Only) */}
             <section className="py-20 bg-slate-800">
                 <div className="container mx-auto px-6 max-w-4xl text-center">
                     <h2 className="text-3xl md:text-5xl font-bold mb-8">
-                        Nuestra Solución: SpeakGo AI
+                        Nuestra Solución: Talkme AI
                     </h2>
                     <p className="text-xl text-slate-300 mb-8 leading-relaxed">
                         Contamos con una plataforma que brinda <strong>asesoramiento inteligente</strong> con respuestas inmediatas.
@@ -134,7 +138,7 @@ const LandingPage = () => {
                     </p>
 
                     <Link to="/login" className="inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl font-bold text-xl shadow-lg hover:shadow-blue-500/40 transition-all transform hover:-translate-y-1">
-                        <Mic size={28} /> Probar SpeakGo Ahora
+                        <Mic size={28} /> Probar Talkme Ahora
                     </Link>
                 </div>
             </section>
@@ -159,13 +163,15 @@ const LandingPage = () => {
                             <li className="flex items-center gap-3 text-slate-300"><CheckCircle className="text-blue-500" /> Aumenta tus posibilidades de selección</li>
                         </ul>
 
-                        <Link
-                            to="/login"
+                        <a
+                            href="https://ats-career-client.vercel.app/"
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-full font-bold text-lg shadow-lg hover:shadow-cyan-500/30 transition-all transform hover:-translate-y-1"
                         >
                             <span className="bg-white/20 p-1 rounded-full"><Star size={18} fill="currentColor" /></span>
                             utiza nuestro: Simulador ATS y Revolución de CV con IA
-                        </Link>
+                        </a>
                     </div>
                 </div>
             </section>
@@ -232,18 +238,13 @@ const LandingPage = () => {
                         <p className="text-3xl font-bold text-blue-400">sino de estar LISTO ✨</p>
                     </div>
 
-                    <div className="mt-12 flex flex-col items-center gap-6">
-                        <div className="flex flex-col md:flex-row justify-center gap-6">
-                            <a href="https://calendly.com/puentesglobales" target="_blank" rel="noopener noreferrer" className="px-8 py-4 bg-green-500 hover:bg-green-400 text-white rounded-full font-bold text-lg shadow-lg flex items-center justify-center gap-2">
-                                <Calendar /> Agendar Entrevista
-                            </a>
-                            <a href="https://wa.me/541158253958" target="_blank" rel="noopener noreferrer" className="px-8 py-4 bg-white text-green-600 hover:bg-slate-100 rounded-full font-bold text-lg shadow-lg flex items-center justify-center gap-2">
-                                <MessageCircle /> WhatsApp Directo
-                            </a>
-                        </div>
-                        <p className="text-xs text-blue-100/60 max-w-lg mt-4">
-                            Al continuar, permites que usemos tus datos para que, en caso de que una empresa se interese en tu perfil, puedan contactarte directamente por estas herramientas.
-                        </p>
+                    <div className="mt-12 flex flex-col md:flex-row justify-center gap-6">
+                        <a href="https://calendly.com/puentesglobales" target="_blank" rel="noopener noreferrer" className="px-8 py-4 bg-green-500 hover:bg-green-400 text-white rounded-full font-bold text-lg shadow-lg flex items-center justify-center gap-2">
+                            <Calendar /> Agendar Entrevista
+                        </a>
+                        <a href="https://wa.me/541158253958" target="_blank" rel="noopener noreferrer" className="px-8 py-4 bg-white text-green-600 hover:bg-slate-100 rounded-full font-bold text-lg shadow-lg flex items-center justify-center gap-2">
+                            <MessageCircle /> WhatsApp Directo
+                        </a>
                     </div>
                 </div>
             </section>
